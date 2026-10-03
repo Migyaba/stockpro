@@ -1,4 +1,4 @@
-name: Build and Push Docker Images to GHCR
+name: CI/CD - Build, Push and Deploy
 
 on:
   push:
@@ -11,7 +11,7 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & Push to GHCR
+    name: 1. Build & Push to GHCR
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,3 +62,35 @@ jobs:
             ghcr.io/${{ env.OWNER_LC }}/stockpro-frontend:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    name: 2. Deploy to VPS via SSH
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Execute remote deployment commands
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_SSH_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Connexion SSH établie au VPS. Début du déploiement..."
+            cd ~/apps/stockpro
+
+            echo "📦 Téléchargement des nouvelles images depuis GHCR..."
+            docker compose pull stockpro-backend stockpro-frontend
+
+            echo "🔄 Redémarrage des conteneurs avec la nouvelle version..."
+            docker compose up -d stockpro-backend stockpro-frontend
+
+            echo "🧹 Nettoyage des anciennes images Docker orphelines..."
+            docker image prune -f
+
+            echo "🎉 Déploiement automatique terminé avec succès !"
