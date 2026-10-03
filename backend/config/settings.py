@@ -73,15 +73,29 @@ TEMPLATES = [
     }
 ]
 
-DATABASES = {
-    "default": dj_database_url.parse(
-        os.getenv(
-            "DATABASE_URL",
-            "postgres://stockpro:stockpro@127.0.0.1:5433/stockpro",
-        ),
-        conn_max_age=60,
-    )
-}
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    try:
+        DATABASES = {
+            "default": dj_database_url.parse(database_url, conn_max_age=60)
+        }
+    except Exception:
+        DATABASES = {}
+else:
+    DATABASES = {}
+
+if "default" not in DATABASES:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("POSTGRES_DB", "stockpro"),
+            "USER": os.getenv("POSTGRES_USER", "stockpro"),
+            "PASSWORD": os.getenv("POSTGRES_PASSWORD", "stockpro"),
+            "HOST": os.getenv("POSTGRES_HOST", "127.0.0.1"),
+            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "CONN_MAX_AGE": 60,
+        }
+    }
 
 if "test" in sys.argv:
     DATABASES["default"] = {

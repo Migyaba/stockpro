@@ -35,7 +35,11 @@ services:
       DJANGO_DEBUG: "false"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Veuillez definir DJANGO_SECRET_KEY dans .env}
       DJANGO_ALLOWED_HOSTS: apistockpro.miguelmissetcho.com,stockpro-backend,localhost
-      DATABASE_URL: postgres://${POSTGRES_USER:-stockpro_user}:${POSTGRES_PASSWORD}@stockpro-db:5432/${POSTGRES_DB:-stockpro_prod}
+      POSTGRES_DB: ${POSTGRES_DB:-stockpro_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-stockpro_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: stockpro-db
+      POSTGRES_PORT: "5432"
       CORS_ALLOWED_ORIGINS: https://stockpro.miguelmissetcho.com
       CSRF_TRUSTED_ORIGINS: https://apistockpro.miguelmissetcho.com,https://stockpro.miguelmissetcho.com
       JWT_ACCESS_MINUTES: ${JWT_ACCESS_MINUTES:-30}
