@@ -1,7 +1,8 @@
 import axios, { type AxiosError, type AxiosResponse } from "axios";
 import { useAuthStore } from "@/lib/stores/authStore";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const RAW_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const BASE_URL = RAW_BASE_URL.replace(/\/$/, "");
 
 export const apiClient = axios.create({
   baseURL: `${BASE_URL}/api`,

@@ -34,14 +34,15 @@ services:
     environment:
       DJANGO_DEBUG: "false"
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Veuillez definir DJANGO_SECRET_KEY dans .env}
-      DJANGO_ALLOWED_HOSTS: stockpro.miguelmissetcho.com,stockpro-backend,localhost
+      DJANGO_ALLOWED_HOSTS: apistockpro.miguelmissetcho.com,stockpro-backend,localhost
       DATABASE_URL: postgres://${POSTGRES_USER:-stockpro_user}:${POSTGRES_PASSWORD}@stockpro-db:5432/${POSTGRES_DB:-stockpro_prod}
       CORS_ALLOWED_ORIGINS: https://stockpro.miguelmissetcho.com
-      CSRF_TRUSTED_ORIGINS: https://stockpro.miguelmissetcho.com
+      CSRF_TRUSTED_ORIGINS: https://apistockpro.miguelmissetcho.com,https://stockpro.miguelmissetcho.com
       JWT_ACCESS_MINUTES: ${JWT_ACCESS_MINUTES:-30}
       JWT_REFRESH_DAYS: ${JWT_REFRESH_DAYS:-14}
       USE_MINIO: "true"
       MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://minio:9000}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Definir MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Definir MINIO_SECRET_KEY}
       MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-stockpro-media}
@@ -51,12 +52,11 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=${TRAEFIK_NETWORK_NAME:-traefik_default}"
-      # Routeur API, Admin et Staticfiles Django (Priorité haute)
-      - "traefik.http.routers.stockpro-api.rule=Host(`stockpro.miguelmissetcho.com`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/staticfiles`))"
+      # Routeur Backend API & Admin sur apistockpro.miguelmissetcho.com
+      - "traefik.http.routers.stockpro-api.rule=Host(`apistockpro.miguelmissetcho.com`)"
       - "traefik.http.routers.stockpro-api.entrypoints=websecure"
       - "traefik.http.routers.stockpro-api.tls=true"
       - "traefik.http.routers.stockpro-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
-      - "traefik.http.routers.stockpro-api.priority=100"
       - "traefik.http.services.stockpro-api.loadbalancer.server.port=8000"
 
   # 3. Frontend Next.js Standalone

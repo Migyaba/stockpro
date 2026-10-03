@@ -56,7 +56,7 @@ jobs:
           file: ./frontend/Dockerfile.prod
           push: true
           build-args: |
-            NEXT_PUBLIC_API_URL=
+            NEXT_PUBLIC_API_URL=https://apistockpro.miguelmissetcho.com
           tags: |
             ghcr.io/${{ env.OWNER_LC }}/stockpro-frontend:latest
             ghcr.io/${{ env.OWNER_LC }}/stockpro-frontend:${{ github.sha }}
