@@ -68,9 +68,9 @@ export function StockTable({
       let aVal: unknown;
       let bVal: unknown;
       if (id === "quantity") { aVal = a.quantity; bVal = b.quantity; }
-      else if (id === "selling_price") { aVal = a.product.selling_price; bVal = b.product.selling_price; }
-      else if (id === "purchase_price") { aVal = a.product.purchase_price; bVal = b.product.purchase_price; }
-      else if (id === "name") { aVal = a.product.name; bVal = b.product.name; }
+      else if (id === "selling_price") { aVal = a.product?.selling_price ?? 0; bVal = b.product?.selling_price ?? 0; }
+      else if (id === "purchase_price") { aVal = a.product?.purchase_price ?? 0; bVal = b.product?.purchase_price ?? 0; }
+      else if (id === "name") { aVal = a.product?.name ?? (a as any).product_name ?? ""; bVal = b.product?.name ?? (b as any).product_name ?? ""; }
       else { return 0; }
       if (typeof aVal === "number" && typeof bVal === "number") {
         return desc ? bVal - aVal : aVal - bVal;

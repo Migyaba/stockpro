@@ -49,9 +49,12 @@ class DashboardSaleSerializer(serializers.Serializer):
 class DashboardSerializer(serializers.Serializer):
     products_count = serializers.IntegerField()
     stock_value = serializers.IntegerField()
-    sales_today_count = serializers.IntegerField()
+    sales_today = serializers.IntegerField(required=False)
     sales_today_total = serializers.IntegerField()
+    sales_today_count = serializers.IntegerField()
     low_stock_count = serializers.IntegerField()
     out_of_stock_count = serializers.IntegerField()
+    pending_purchases = serializers.IntegerField(required=False)
     warehouses_count = serializers.IntegerField()
     recent_sales = DashboardSaleSerializer(many=True)
+

@@ -6,6 +6,7 @@ import type {
   UserProfile,
   Membership,
   Warehouse,
+  Role,
 } from "@/lib/types/api";
 
 // ─── Auth endpoints ────────────────────────────────────────────────────────
@@ -30,7 +31,16 @@ export async function logout(refreshToken: string): Promise<void> {
 
 // ─── Profile & membership ──────────────────────────────────────────────────
 export async function fetchMe(): Promise<UserProfile> {
-  const { data } = await apiClient.get<UserProfile>("/auth/me/");
+  const { data } = await apiClient.get<{
+    user?: UserProfile;
+    membership?: { role?: Role };
+  } & UserProfile>("/auth/me/");
+  if (data.user) {
+    return {
+      ...data.user,
+      role: data.membership?.role ?? data.user.role,
+    };
+  }
   return data;
 }
 

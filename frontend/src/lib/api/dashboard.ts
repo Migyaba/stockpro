@@ -29,7 +29,7 @@ export async function fetchStockPositions(
     }
   });
   const { data } = await apiClient.get<PaginatedResponse<StockPosition>>(
-    `/stock/positions/?${params.toString()}`
+    `/stock/?${params.toString()}`
   );
   return data;
 }
@@ -41,7 +41,7 @@ export async function fetchProductMovements(
   const params = new URLSearchParams({ product: productId, page_size: "20" });
   if (warehouseId) params.set("warehouse", warehouseId);
   const { data } = await apiClient.get<PaginatedResponse<StockMovement>>(
-    `/stock/movements/?${params.toString()}`
+    `/movements/?${params.toString()}`
   );
   return data;
 }

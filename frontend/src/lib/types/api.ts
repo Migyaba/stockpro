@@ -40,6 +40,7 @@ export interface UserProfile {
   last_name: string;
   phone: string;
   full_name: string;
+  role?: Role;
 }
 
 // ─── Organization ──────────────────────────────────────────────────────────

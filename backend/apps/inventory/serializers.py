@@ -2,6 +2,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.inventory.models import StockMovement, StockPosition, Transfer, TransferItem, Warehouse
+from apps.products.serializers import ProductSerializer
 
 
 class WarehouseSerializer(serializers.ModelSerializer):
@@ -21,6 +22,8 @@ class WarehouseSerializer(serializers.ModelSerializer):
 
 
 class StockPositionSerializer(serializers.ModelSerializer):
+    product = ProductSerializer(read_only=True)
+    warehouse = WarehouseSerializer(read_only=True)
     product_name = serializers.CharField(source="product.name", read_only=True)
     product_sku = serializers.CharField(source="product.sku", read_only=True)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)

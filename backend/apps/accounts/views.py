@@ -167,6 +167,24 @@ class MeView(APIView):
         )
 
 
+class MyMembershipView(APIView):
+    def get(self, request):
+        m = request.membership
+        return Response(
+            {
+                "id": str(m.id),
+                "role": m.role,
+                "is_active": m.is_active,
+                "permissions": sorted(ROLE_PERMISSIONS.get(m.role, [])),
+                "organization": {
+                    "id": str(request.organization.id),
+                    "name": request.organization.name,
+                    "currency": request.organization.currency,
+                },
+            }
+        )
+
+
 class ChangePasswordView(APIView):
     serializer_class = ChangePasswordSerializer
     def post(self, request):

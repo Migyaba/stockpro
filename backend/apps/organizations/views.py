@@ -7,6 +7,7 @@ from apps.core.permissions import require_permission
 from apps.inventory.models import StockPosition
 from apps.organizations.serializers import DashboardSerializer, OrganizationSerializer
 from apps.products.models import Product
+from apps.purchases.models import Purchase, PurchaseStatus
 from apps.sales.models import Sale, SaleStatus
 
 
@@ -36,6 +37,7 @@ class DashboardView(APIView):
         sales_today = Sale.objects.filter(
             organization=org, status=SaleStatus.COMPLETED, sale_date=today
         )
+        sales_today_total = sales_today.aggregate(t=Sum("total"))["t"] or 0
         positions = StockPosition.objects.filter(organization=org).select_related("product")
         low = [
             p
@@ -49,6 +51,10 @@ class DashboardView(APIView):
             )["total"]
             or 0
         )
+        pending_purchases = Purchase.objects.filter(
+            organization=org,
+            status__in=[PurchaseStatus.DRAFT, PurchaseStatus.CONFIRMED, PurchaseStatus.PARTIALLY_RECEIVED],
+        ).count()
         recent = (
             Sale.objects.filter(organization=org)
             .order_by("-created_at")[:8]
@@ -58,11 +64,14 @@ class DashboardView(APIView):
             {
                 "products_count": Product.objects.filter(organization=org, is_active=True).count(),
                 "stock_value": stock_value,
+                "sales_today": sales_today_total,
+                "sales_today_total": sales_today_total,
                 "sales_today_count": sales_today.count(),
-                "sales_today_total": sales_today.aggregate(t=Sum("total"))["t"] or 0,
                 "low_stock_count": len(low),
                 "out_of_stock_count": len(out),
+                "pending_purchases": pending_purchases,
                 "warehouses_count": org.inventory_warehouse_set.filter(is_active=True).count(),
                 "recent_sales": list(recent),
             }
         )
+
