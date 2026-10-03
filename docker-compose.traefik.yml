@@ -1,0 +1,95 @@
+# =================================================================
+# STOCKPRO - Déploiement VPS avec Traefik v3 & MinIO existant
+# Emplacement sur VPS : ~/apps/stockpro/docker-compose.yml
+# =================================================================
+
+services:
+  # 1. Base de données PostgreSQL dédiée à StockPro (sans conflit de port 5432)
+  stockpro-db:
+    image: postgres:16-alpine
+    container_name: stockpro-db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-stockpro_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-stockpro_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Veuillez definir POSTGRES_PASSWORD dans .env}
+    volumes:
+      - stockpro_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stockpro_user} -d ${POSTGRES_DB:-stockpro_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stockpro-internal
+
+  # 2. Backend Django Gunicorn
+  stockpro-backend:
+    image: ghcr.io/migyaba/stockpro-backend:latest
+    container_name: stockpro-backend
+    restart: always
+    depends_on:
+      stockpro-db:
+        condition: service_healthy
+    environment:
+      DJANGO_DEBUG: "false"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Veuillez definir DJANGO_SECRET_KEY dans .env}
+      DJANGO_ALLOWED_HOSTS: stockpro.miguelmissetcho.com,stockpro-backend,localhost
+      DATABASE_URL: postgres://${POSTGRES_USER:-stockpro_user}:${POSTGRES_PASSWORD}@stockpro-db:5432/${POSTGRES_DB:-stockpro_prod}
+      CORS_ALLOWED_ORIGINS: https://stockpro.miguelmissetcho.com
+      CSRF_TRUSTED_ORIGINS: https://stockpro.miguelmissetcho.com
+      JWT_ACCESS_MINUTES: ${JWT_ACCESS_MINUTES:-30}
+      JWT_REFRESH_DAYS: ${JWT_REFRESH_DAYS:-14}
+      USE_MINIO: "true"
+      MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Definir MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Definir MINIO_SECRET_KEY}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-stockpro-media}
+    networks:
+      - stockpro-internal
+      - traefik-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK_NAME:-traefik_default}"
+      # Routeur API, Admin et Staticfiles Django (Priorité haute)
+      - "traefik.http.routers.stockpro-api.rule=Host(`stockpro.miguelmissetcho.com`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/staticfiles`))"
+      - "traefik.http.routers.stockpro-api.entrypoints=websecure"
+      - "traefik.http.routers.stockpro-api.tls=true"
+      - "traefik.http.routers.stockpro-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.stockpro-api.priority=100"
+      - "traefik.http.services.stockpro-api.loadbalancer.server.port=8000"
+
+  # 3. Frontend Next.js Standalone
+  stockpro-frontend:
+    image: ghcr.io/migyaba/stockpro-frontend:latest
+    container_name: stockpro-frontend
+    restart: always
+    depends_on:
+      - stockpro-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+    networks:
+      - traefik-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK_NAME:-traefik_default}"
+      # Routeur Application Web (Toutes les autres routes)
+      - "traefik.http.routers.stockpro-web.rule=Host(`stockpro.miguelmissetcho.com`)"
+      - "traefik.http.routers.stockpro-web.entrypoints=websecure"
+      - "traefik.http.routers.stockpro-web.tls=true"
+      - "traefik.http.routers.stockpro-web.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.stockpro-web.priority=10"
+      - "traefik.http.services.stockpro-web.loadbalancer.server.port=3000"
+
+volumes:
+  stockpro_db_data:
+
+networks:
+  # Réseau interne privé entre le backend et la BDD
+  stockpro-internal:
+    driver: bridge
+  # Réseau partagé avec Traefik et MinIO
+  traefik-network:
+    external: true
+    name: ${TRAEFIK_NETWORK_NAME:-traefik_default}
