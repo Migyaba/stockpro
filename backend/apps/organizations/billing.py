@@ -43,9 +43,15 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
     amount = cfg["amount"]
     ref = f"SUB-{uuid.uuid4().hex[:10].upper()}"
 
-    customer_phone = phone or user.phone or organization.phone or ""
-    customer_email = user.email or organization.email or ""
-    customer_name = user.get_full_name() or organization.name or "Client StockPro"
+    customer_phone = phone or getattr(user, "phone", "") or getattr(organization, "phone", "") or ""
+    customer_email = getattr(user, "email", "") or getattr(organization, "email", "") or ""
+    customer_name = (
+        getattr(user, "full_name", None)
+        or (user.get_full_name() if hasattr(user, "get_full_name") else None)
+        or f"{getattr(user, 'first_name', '')} {getattr(user, 'last_name', '')}".strip()
+        or getattr(organization, "name", "")
+        or "Client StockPro"
+    )
 
     if not return_url:
         frontend_url = getattr(settings, "FRONTEND_URL", "https://stockpro.miguelmissetcho.com").rstrip("/")
@@ -70,21 +76,25 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
     client = get_alphapay_client()
     if client:
         try:
-            session = client.checkout_sessions.create(
-                amount=amount,
-                currency="XOF",
-                description=f"StockPro - {cfg['label']} ({organization.name})",
-                customer_email=customer_email,
-                customer_name=customer_name,
-                customer_phone=customer_phone if customer_phone.startswith("+") else f"+229{customer_phone}",
-                return_url=return_url,
-                metadata={
+            checkout_kwargs = {
+                "amount": amount,
+                "currency": "XOF",
+                "description": f"StockPro - {cfg['label']} ({organization.name})",
+                "customer_email": customer_email or None,
+                "customer_name": customer_name or None,
+                "return_url": return_url,
+                "metadata": {
                     "order_id": ref,
                     "organization_id": str(organization.id),
                     "plan": plan_upper,
                 },
-                idempotency_key=True,
-            )
+                "idempotency_key": True,
+            }
+            if customer_phone and customer_phone.strip():
+                raw_phone = customer_phone.strip()
+                checkout_kwargs["customer_phone"] = raw_phone if raw_phone.startswith("+") else f"+229{raw_phone}"
+
+            session = client.checkout_sessions.create(**checkout_kwargs)
 
             payment.alphapay_checkout_id = str(session.get("id", ""))
             payment.alphapay_slug = str(session.get("slug", ""))
