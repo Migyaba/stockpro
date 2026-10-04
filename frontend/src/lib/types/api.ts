@@ -387,12 +387,13 @@ export interface SubscriptionStatus {
   status: OrgStatus;
   plan: SubscriptionPlan;
   has_active_access: boolean;
+  has_custom_pricing?: boolean;
   trial_ends_at: string | null;
   subscription_ends_at: string | null;
   days_remaining: number;
   pricing: {
-    monthly: { amount: number; period: string; label: string };
-    quarterly: { amount: number; period: string; label: string };
+    monthly: { amount: number; period: string; label: string; is_custom?: boolean };
+    quarterly: { amount: number; period: string; label: string; is_custom?: boolean };
   };
   recent_payments: SubscriptionPaymentRecord[];
 }

@@ -62,12 +62,39 @@ class Organization(TimeStampedModel):
         default=SubscriptionPlan.TRIAL,
     )
     subscription_ends_at = models.DateTimeField(null=True, blank=True)
+    custom_monthly_price = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Tarif mensuel personnalisé (FCFA). Laissez vide pour utiliser le tarif global de la plateforme.",
+    )
+    custom_quarterly_price = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Tarif trimestriel personnalisé (FCFA). Laissez vide pour utiliser le tarif global de la plateforme.",
+    )
 
     class Meta:
         ordering = ["name"]
 
     def __str__(self):
         return self.name
+
+    def get_effective_monthly_price(self) -> int:
+        if self.custom_monthly_price is not None and self.custom_monthly_price > 0:
+            return self.custom_monthly_price
+        return PlatformSubscriptionConfig.get_config().default_monthly_price
+
+    def get_effective_quarterly_price(self) -> int:
+        if self.custom_quarterly_price is not None and self.custom_quarterly_price > 0:
+            return self.custom_quarterly_price
+        return PlatformSubscriptionConfig.get_config().default_quarterly_price
+
+    @property
+    def has_custom_pricing(self) -> bool:
+        return (
+            (self.custom_monthly_price is not None and self.custom_monthly_price > 0)
+            or (self.custom_quarterly_price is not None and self.custom_quarterly_price > 0)
+        )
 
     def save(self, *args, **kwargs):
         if not self.slug:
@@ -80,6 +107,51 @@ class Organization(TimeStampedModel):
             self.slug = slug
         self.currency_exponent = CURRENCY_EXPONENTS.get(self.currency, 0)
         super().save(*args, **kwargs)
+
+
+class PlatformSubscriptionConfig(models.Model):
+    """
+    Configuration globale des tarifs et paramètres d'abonnement StockPro,
+    modifiable à tout moment par les administrateurs depuis Django Admin.
+    """
+    default_monthly_price = models.PositiveIntegerField(
+        default=5000,
+        help_text="Tarif mensuel global par défaut en FCFA (ex: 5000)."
+    )
+    default_quarterly_price = models.PositiveIntegerField(
+        default=12500,
+        help_text="Tarif trimestriel global par défaut en FCFA (ex: 12500)."
+    )
+    trial_days = models.PositiveSmallIntegerField(
+        default=14,
+        help_text="Durée de la période d'essai gratuit en jours (ex: 14)."
+    )
+    support_phone = models.CharField(
+        max_length=32,
+        default="+22943507805",
+        help_text="Numéro WhatsApp d'assistance et de contact sur-mesure."
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Configuration globale des abonnements"
+        verbose_name_plural = "Configuration globale des abonnements"
+
+    def __str__(self):
+        return f"Tarifs globaux: {self.default_monthly_price} F/mois | {self.default_quarterly_price} F/trimestre"
+
+    @classmethod
+    def get_config(cls):
+        obj = cls.objects.first()
+        if not obj:
+            obj = cls.objects.create(
+                default_monthly_price=5000,
+                default_quarterly_price=12500,
+                trial_days=14,
+                support_phone="+22943507805",
+            )
+        return obj
 
 
 class DocumentSequence(models.Model):

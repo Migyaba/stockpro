@@ -13,10 +13,29 @@ from apps.organizations.models import (
 
 logger = logging.getLogger(__name__)
 
-PLAN_PRICING = {
-    SubscriptionPlan.MONTHLY: {"amount": 5000, "days": 30, "label": "Abonnement Mensuel"},
-    SubscriptionPlan.QUARTERLY: {"amount": 12500, "days": 90, "label": "Abonnement Trimestriel"},
-}
+
+def get_organization_plan_pricing(organization: Organization) -> dict:
+    """
+    Calcule dynamiquement les tarifs d'abonnement applicables à cette organisation.
+    Prend en compte les tarifs sur-mesure de l'organisation ou les tarifs globaux de la plateforme.
+    """
+    monthly_price = organization.get_effective_monthly_price()
+    quarterly_price = organization.get_effective_quarterly_price()
+
+    return {
+        SubscriptionPlan.MONTHLY: {
+            "amount": monthly_price,
+            "days": 30,
+            "label": "Abonnement Mensuel",
+            "is_custom": organization.custom_monthly_price is not None and organization.custom_monthly_price > 0,
+        },
+        SubscriptionPlan.QUARTERLY: {
+            "amount": quarterly_price,
+            "days": 90,
+            "label": "Abonnement Trimestriel",
+            "is_custom": organization.custom_quarterly_price is not None and organization.custom_quarterly_price > 0,
+        },
+    }
 
 
 def get_alphapay_client():
@@ -36,10 +55,11 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
     Initialise une session de paiement AlphaPay pour un abonnement StockPro.
     """
     plan_upper = plan.upper()
-    if plan_upper not in PLAN_PRICING:
+    pricing_map = get_organization_plan_pricing(organization)
+    if plan_upper not in pricing_map:
         raise ValueError(f"Plan invalide: {plan}. Utilisez 'MONTHLY' ou 'QUARTERLY'.")
 
-    cfg = PLAN_PRICING[plan_upper]
+    cfg = pricing_map[plan_upper]
     amount = cfg["amount"]
     ref = f"SUB-{uuid.uuid4().hex[:10].upper()}"
 

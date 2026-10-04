@@ -8,9 +8,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.organizations.billing import (
-    PLAN_PRICING,
     activate_subscription_from_payment,
     create_subscription_checkout,
+    get_organization_plan_pricing,
 )
 from apps.organizations.models import (
     OrganizationStatus,
@@ -41,6 +41,10 @@ class SubscriptionStatusView(APIView):
             or (org.subscription_ends_at and org.subscription_ends_at > now)
         )
 
+        pricing_map = get_organization_plan_pricing(org)
+        monthly_cfg = pricing_map[SubscriptionPlan.MONTHLY]
+        quarterly_cfg = pricing_map[SubscriptionPlan.QUARTERLY]
+
         payments = SubscriptionPayment.objects.filter(organization=org).order_by("-created_at")[:5]
         payments_data = [
             {
@@ -63,12 +67,23 @@ class SubscriptionStatusView(APIView):
                 "status": org.status,
                 "plan": org.subscription_plan,
                 "has_active_access": has_active_access,
+                "has_custom_pricing": org.has_custom_pricing,
                 "trial_ends_at": org.trial_ends_at.isoformat() if org.trial_ends_at else None,
                 "subscription_ends_at": org.subscription_ends_at.isoformat() if org.subscription_ends_at else None,
                 "days_remaining": days_remaining,
                 "pricing": {
-                    "monthly": {"amount": 5000, "period": "mois", "label": "Mensuel (5 000 F)"},
-                    "quarterly": {"amount": 12500, "period": "trimestre", "label": "Trimestriel (12 500 F)"},
+                    "monthly": {
+                        "amount": monthly_cfg["amount"],
+                        "period": "mois",
+                        "label": f"Mensuel ({monthly_cfg['amount']:,} F)".replace(",", " "),
+                        "is_custom": monthly_cfg["is_custom"],
+                    },
+                    "quarterly": {
+                        "amount": quarterly_cfg["amount"],
+                        "period": "trimestre",
+                        "label": f"Trimestriel ({quarterly_cfg['amount']:,} F)".replace(",", " "),
+                        "is_custom": quarterly_cfg["is_custom"],
+                    },
                 },
                 "recent_payments": payments_data,
             }

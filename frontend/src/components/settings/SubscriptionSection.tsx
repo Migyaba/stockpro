@@ -64,6 +64,16 @@ export function SubscriptionSection() {
 
   const isExpired = sub?.days_remaining === 0 && !sub?.has_active_access;
 
+  const monthlyAmount = sub?.pricing?.monthly?.amount ?? 5000;
+  const quarterlyAmount = sub?.pricing?.quarterly?.amount ?? 12500;
+  const isMonthlyCustom = sub?.pricing?.monthly?.is_custom ?? false;
+  const isQuarterlyCustom = sub?.pricing?.quarterly?.is_custom ?? false;
+  const hasCustomPricing = sub?.has_custom_pricing || isMonthlyCustom || isQuarterlyCustom;
+
+  // Calcul dynamique de l'économie trimestrielle
+  const quarterlySavings = Math.max(0, (monthlyAmount * 3) - quarterlyAmount);
+  const monthlyEquivalent = Math.round(quarterlyAmount / 3);
+
   return (
     <div className="space-y-6 max-w-4xl">
       {/* ─── En-tête Statut de l'Abonnement ────────────────────────────── */}
@@ -83,12 +93,18 @@ export function SubscriptionSection() {
               >
                 {sub?.has_active_access ? "Actif & Opérationnel" : "Expiré"}
               </span>
+              {hasCustomPricing && (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  <span>Tarif Préférentiel</span>
+                </span>
+              )}
             </div>
             <h3 className="text-xl font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight">
               {sub?.plan === "MONTHLY"
-                ? "Formule Mensuelle (5 000 FCFA/mois)"
+                ? `Formule Mensuelle (${monthlyAmount.toLocaleString("fr-FR")} FCFA/mois)`
                 : sub?.plan === "QUARTERLY"
-                ? "Formule Trimestrielle (12 500 FCFA/trimestre)"
+                ? `Formule Trimestrielle (${quarterlyAmount.toLocaleString("fr-FR")} FCFA/trimestre)`
                 : sub?.plan === "CUSTOM"
                 ? "Déploiement Sur-Mesure Dédié"
                 : "Période d'Essai Gratuit 14 jours"}
@@ -135,6 +151,16 @@ export function SubscriptionSection() {
         </div>
       </div>
 
+      {/* Alerte si un tarif personnalisé a été accordé par l'administrateur */}
+      {hasCustomPricing && (
+        <div className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50/80 border border-indigo-200 text-indigo-900 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300 text-xs">
+          <Sparkles className="h-5 w-5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+          <p>
+            Votre boutique bénéficie d'un <strong>tarif préférentiel négocié</strong> accordé par l'administrateur StockPro. Les montants ci-dessous sont calculés spécialement pour votre compte.
+          </p>
+        </div>
+      )}
+
       {/* Alerte si proche de l'expiration */}
       {sub && sub.days_remaining <= 5 && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs">
@@ -179,7 +205,7 @@ export function SubscriptionSection() {
                 Formule Mensuelle
               </h4>
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 border border-zinc-200 dark:border-zinc-700 px-2 py-0.5 rounded-full">
-                Sans engagement
+                {isMonthlyCustom ? "Tarif sur-mesure" : "Sans engagement"}
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
@@ -188,7 +214,7 @@ export function SubscriptionSection() {
 
             <div className="flex items-baseline gap-1.5 pb-4 mb-4 border-b border-zinc-100 dark:border-zinc-800">
               <span className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-50">
-                5 000
+                {monthlyAmount.toLocaleString("fr-FR")}
               </span>
               <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
                 FCFA / mois
@@ -221,7 +247,7 @@ export function SubscriptionSection() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                <span>Renouveler pour 5 000 FCFA</span>
+                <span>Renouveler pour {monthlyAmount.toLocaleString("fr-FR")} FCFA</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </>
             )}
@@ -230,10 +256,12 @@ export function SubscriptionSection() {
 
         {/* Forfait Trimestriel (Recommandé) */}
         <div className="rounded-2xl border-2 border-indigo-500 bg-gradient-to-b from-indigo-50/50 via-white to-white dark:from-indigo-950/30 dark:via-zinc-900 dark:to-zinc-900 p-6 flex flex-col justify-between shadow-md relative">
-          <div className="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[10px] font-bold px-3 py-0.5 uppercase tracking-wider shadow-xs flex items-center gap-1">
-            <Sparkles className="h-3 w-3" />
-            <span>Économisez 2 500 F</span>
-          </div>
+          {quarterlySavings > 0 && (
+            <div className="absolute -top-3 right-6 rounded-full bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[10px] font-bold px-3 py-0.5 uppercase tracking-wider shadow-xs flex items-center gap-1">
+              <Sparkles className="h-3 w-3" />
+              <span>Économisez {quarterlySavings.toLocaleString("fr-FR")} F</span>
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -241,16 +269,16 @@ export function SubscriptionSection() {
                 Formule Trimestrielle
               </h4>
               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-full">
-                Le Plus Choisi
+                {isQuarterlyCustom ? "Tarif sur-mesure" : "Le Plus Choisi"}
               </span>
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-              90 jours d'accès complet sans coupure (revient à 4 160 F/mois).
+              90 jours d'accès complet sans coupure (revient à {monthlyEquivalent.toLocaleString("fr-FR")} F/mois).
             </p>
 
             <div className="flex items-baseline gap-1.5 pb-4 mb-4 border-b border-zinc-100 dark:border-zinc-800">
               <span className="text-3xl font-extrabold text-zinc-900 dark:text-zinc-50">
-                12 500
+                {quarterlyAmount.toLocaleString("fr-FR")}
               </span>
               <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
                 FCFA / trimestre
@@ -264,7 +292,7 @@ export function SubscriptionSection() {
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                <span>Économie de 17% sur votre abonnement</span>
+                <span>90 jours de sérénité sans coupure</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
@@ -283,7 +311,7 @@ export function SubscriptionSection() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                <span>Renouveler pour 12 500 FCFA</span>
+                <span>Renouveler pour {quarterlyAmount.toLocaleString("fr-FR")} FCFA</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </>
             )}
