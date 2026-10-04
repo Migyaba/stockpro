@@ -1,7 +1,7 @@
 from django.urls import path
 
-from apps.organizations.views import DashboardView, OrganizationMeView
-from apps.organizations.billing_views import (
+from .views import DashboardView, OrganizationMeView
+from .billing_views import (
     SubscriptionStatusView,
     CheckoutSessionView,
     AlphaPayWebhookView,

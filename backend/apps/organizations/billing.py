@@ -3,7 +3,7 @@ import uuid
 from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
-from apps.organizations.models import (
+from .models import (
     Organization,
     OrganizationStatus,
     PaymentStatus,

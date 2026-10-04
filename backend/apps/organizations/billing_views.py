@@ -7,12 +7,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.organizations.billing import (
+from .billing import (
     activate_subscription_from_payment,
     create_subscription_checkout,
     get_organization_plan_pricing,
 )
-from apps.organizations.models import (
+from .models import (
     OrganizationStatus,
     SubscriptionPayment,
     SubscriptionPlan,
