@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CreditCard,
@@ -15,8 +15,9 @@ import {
   Smartphone,
   PhoneCall,
   Sparkles,
+  RefreshCw,
 } from "lucide-react";
-import { fetchSubscriptionStatus, createCheckoutSession } from "@/lib/api/billing";
+import { fetchSubscriptionStatus, createCheckoutSession, verifyPayment } from "@/lib/api/billing";
 import { formatFCFA } from "@/lib/utils/format";
 
 export function SubscriptionSection() {
@@ -24,12 +25,56 @@ export function SubscriptionSection() {
   const [selectedPlan, setSelectedPlan] = useState<"monthly" | "quarterly">("monthly");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [verifyingRef, setVerifyingRef] = useState<string | null>(null);
 
   const { data: sub, isLoading } = useQuery({
     queryKey: ["billing", "subscription"],
     queryFn: fetchSubscriptionStatus,
-    staleTime: 60_000,
+    staleTime: 30_000,
   });
+
+  const verifyMutation = useMutation({
+    mutationFn: (ref?: string) => verifyPayment(ref),
+    onSuccess: (data) => {
+      setVerifyingRef(null);
+      if (data.is_completed) {
+        setSuccessMsg(data.message || "Paiement validé avec succès ! Votre abonnement est actif.");
+        setErrorMsg(null);
+        queryClient.invalidateQueries({ queryKey: ["billing", "subscription"] });
+      } else {
+        setErrorMsg(data.message || "Le paiement n'a pas encore été confirmé par AlphaPay.");
+      }
+    },
+    onError: (err: any) => {
+      setVerifyingRef(null);
+      setErrorMsg(err?.response?.data?.error?.message || "Erreur lors de la vérification du paiement auprès d'AlphaPay.");
+    },
+  });
+
+  // Détection du retour de paiement AlphaPay dans l'URL (?payment=success)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const isPaymentSuccess = params.get("payment") === "success";
+      const paymentRef = params.get("ref");
+
+      if (isPaymentSuccess) {
+        setSuccessMsg("Vérification de la confirmation de votre paiement en cours...");
+        verifyMutation.mutate(paymentRef || undefined);
+
+        // Nettoyage propre de l'URL sans rechargement
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+  }, []);
+
+  const handleVerify = (ref: string) => {
+    setVerifyingRef(ref);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    verifyMutation.mutate(ref);
+  };
 
   const checkoutMutation = useMutation({
     mutationFn: createCheckoutSession,
@@ -168,6 +213,13 @@ export function SubscriptionSection() {
           <p>
             Votre abonnement expire dans <strong>{sub.days_remaining} jour(s)</strong>. Renouvelez-le dès maintenant pour éviter l'interruption de vos encaissements et accès aux stocks.
           </p>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="flex items-center gap-2 p-3 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span>{successMsg}</span>
         </div>
       )}
 
@@ -371,21 +423,39 @@ export function SubscriptionSection() {
                     {new Date(p.created_at).toLocaleDateString("fr-FR")}
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        p.status === "COMPLETED"
-                          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                    <div className="flex items-center justify-end gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          p.status === "COMPLETED"
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                            : p.status === "PENDING"
+                            ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                        }`}
+                      >
+                        {p.status === "COMPLETED"
+                          ? "Payé"
                           : p.status === "PENDING"
-                          ? "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-                          : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                      }`}
-                    >
-                      {p.status === "COMPLETED"
-                        ? "Payé"
-                        : p.status === "PENDING"
-                        ? "En attente"
-                        : p.status}
-                    </span>
+                          ? "En attente"
+                          : p.status}
+                      </span>
+                      {p.status === "PENDING" && (
+                        <button
+                          type="button"
+                          disabled={verifyMutation.isPending && verifyingRef === p.reference}
+                          onClick={() => handleVerify(p.reference)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-400 dark:hover:bg-indigo-900 border border-indigo-200/50 dark:border-indigo-800 transition active:scale-95 disabled:opacity-50"
+                          title="Interroger AlphaPay pour confirmer ce paiement"
+                        >
+                          {verifyMutation.isPending && verifyingRef === p.reference ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3 w-3" />
+                          )}
+                          <span>Vérifier</span>
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

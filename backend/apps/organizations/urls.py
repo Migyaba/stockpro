@@ -4,6 +4,7 @@ from .views import DashboardView, OrganizationMeView
 from .billing_views import (
     SubscriptionStatusView,
     CheckoutSessionView,
+    VerifyPaymentView,
     AlphaPayWebhookView,
 )
 
@@ -12,5 +13,6 @@ urlpatterns = [
     path("dashboard/", DashboardView.as_view()),
     path("billing/subscription/", SubscriptionStatusView.as_view()),
     path("billing/checkout/", CheckoutSessionView.as_view()),
+    path("billing/verify/", VerifyPaymentView.as_view()),
     path("billing/webhook/alphapay/", AlphaPayWebhookView.as_view()),
 ]

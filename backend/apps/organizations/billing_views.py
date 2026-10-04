@@ -11,6 +11,7 @@ from .billing import (
     activate_subscription_from_payment,
     create_subscription_checkout,
     get_organization_plan_pricing,
+    verify_subscription_payment,
 )
 from .models import (
     OrganizationStatus,
@@ -30,6 +31,16 @@ class SubscriptionStatusView(APIView):
     def get(self, request):
         org = request.organization
         now = timezone.now()
+
+        # Si le paiement le plus récent est en attente, interroger AlphaPay en direct
+        latest_pending = (
+            SubscriptionPayment.objects.filter(organization=org, status=PaymentStatus.PENDING)
+            .order_by("-created_at")
+            .first()
+        )
+        if latest_pending:
+            verify_subscription_payment(latest_pending)
+            org.refresh_from_db()
 
         end_date = org.subscription_ends_at or org.trial_ends_at
         days_remaining = max(0, (end_date - now).days) if end_date and end_date > now else 0
@@ -121,6 +132,45 @@ class CheckoutSessionView(APIView):
             )
 
 
+class VerifyPaymentView(APIView):
+    """
+    Interroge l'API AlphaPay pour vérifier et valider immédiatement un paiement en attente.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        org = request.organization
+        ref = request.data.get("reference")
+
+        query = SubscriptionPayment.objects.filter(organization=org)
+        if ref:
+            payment = query.filter(reference=ref).first()
+        else:
+            payment = query.filter(status=PaymentStatus.PENDING).order_by("-created_at").first()
+
+        if not payment:
+            return Response(
+                {"error": {"code": "not_found", "message": "Aucun paiement trouvé à vérifier."}},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        updated_payment = verify_subscription_payment(payment)
+        org.refresh_from_db()
+
+        is_completed = updated_payment.status == PaymentStatus.COMPLETED
+        return Response({
+            "reference": updated_payment.reference,
+            "status": updated_payment.status,
+            "is_completed": is_completed,
+            "plan": updated_payment.plan,
+            "amount": updated_payment.amount,
+            "subscription_ends_at": org.subscription_ends_at.isoformat() if org.subscription_ends_at else None,
+            "message": "Paiement validé avec succès ! Votre abonnement est actif."
+            if is_completed
+            else "Le paiement est toujours en cours de confirmation auprès de l'opérateur.",
+        })
+
+
 class AlphaPayWebhookView(APIView):
     """
     Point d'entrée du webhook AlphaPay (sécurisé par signature).
@@ -152,22 +202,32 @@ class AlphaPayWebhookView(APIView):
 
         event_type = event.get("event")
         data = event.get("data", {})
-        logger.info("Événement webhook AlphaPay reçu: %s", event_type)
+        logger.info("Événement webhook AlphaPay reçu : %s", event_type)
 
-        if event_type == "payment.succeeded":
+        if event_type in ["payment.succeeded", "checkout_session.paid", "checkout_session.completed", "checkout.paid"]:
             metadata = data.get("metadata", {})
-            ref = metadata.get("order_id") or metadata.get("payment_ref") or data.get("order_id") or data.get("reference")
+            ref = (
+                metadata.get("order_id")
+                or metadata.get("payment_ref")
+                or metadata.get("reference")
+                or data.get("order_id")
+                or data.get("reference")
+            )
 
             payment = None
             if ref:
                 payment = SubscriptionPayment.objects.filter(reference=ref).first()
             if not payment and data.get("id"):
                 payment = SubscriptionPayment.objects.filter(alphapay_checkout_id=str(data.get("id"))).first()
+            if not payment and data.get("checkout_session_id"):
+                payment = SubscriptionPayment.objects.filter(alphapay_checkout_id=str(data.get("checkout_session_id"))).first()
+            if not payment and data.get("slug"):
+                payment = SubscriptionPayment.objects.filter(alphapay_slug=str(data.get("slug"))).first()
 
             if payment:
                 activate_subscription_from_payment(payment)
-                return Response({"status": "ok", "message": f"Abonnement pour {ref} activé"}, status=status.HTTP_200_OK)
+                return Response({"status": "ok", "message": f"Abonnement pour {payment.reference} activé"}, status=status.HTTP_200_OK)
             else:
-                logger.warning("Paiement introuvable pour la référence webhook : %s", ref)
+                logger.warning("Paiement introuvable pour la référence webhook : %s (id: %s)", ref, data.get("id"))
 
         return Response({"status": "received", "event": event_type}, status=status.HTTP_200_OK)

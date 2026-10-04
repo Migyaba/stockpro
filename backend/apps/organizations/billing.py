@@ -175,3 +175,44 @@ def activate_subscription_from_payment(payment: SubscriptionPayment):
         new_end_date.strftime("%Y-%m-%d %H:%M"),
     )
     return payment
+
+
+def verify_subscription_payment(payment: SubscriptionPayment) -> SubscriptionPayment:
+    """
+    Interroge l'API AlphaPay pour vérifier si la session de paiement a été validée.
+    Si le statut AlphaPay est 'PAID' (ou équivalent), active automatiquement l'abonnement.
+    """
+    if payment.status == PaymentStatus.COMPLETED:
+        return payment
+
+    client = get_alphapay_client()
+    if not client:
+        logger.warning("Vérification AlphaPay impossible : client non initialisé (clé secrète manquante).")
+        return payment
+
+    target_id = payment.alphapay_checkout_id or payment.alphapay_slug
+    if not target_id:
+        logger.warning("Vérification AlphaPay impossible : aucun id de session ou slug pour %s", payment.reference)
+        return payment
+
+    try:
+        session = client.checkout_sessions.get(target_id)
+        session_status = str(session.get("status", "")).upper()
+        payment_status_field = str(session.get("payment_status", "")).upper()
+
+        logger.info(
+            "Statut session AlphaPay pour %s : status=%s, payment_status=%s",
+            payment.reference,
+            session_status,
+            payment_status_field,
+        )
+
+        if session_status in ["PAID", "COMPLETED", "SUCCESS"] or payment_status_field in ["PAID", "COMPLETED"]:
+            activate_subscription_from_payment(payment)
+        elif session_status in ["EXPIRED", "CANCELLED", "FAILED"]:
+            payment.status = PaymentStatus.FAILED if session_status == "FAILED" else PaymentStatus.CANCELLED
+            payment.save(update_fields=["status"])
+    except Exception as e:
+        logger.warning("Erreur lors de la vérification de la session %s sur AlphaPay : %s", target_id, e)
+
+    return payment
