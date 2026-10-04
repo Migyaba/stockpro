@@ -1,6 +1,6 @@
 from rest_framework.permissions import BasePermission
 
-OPERATIONAL_STATUSES = {"ACTIVE", "TRIAL"}
+OPERATIONAL_STATUSES = {"ACTIVE"}
 
 ROLE_PERMISSIONS = {
     "OWNER": {

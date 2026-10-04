@@ -82,7 +82,7 @@ export function useRegister() {
       setTokens(data.access, data.refresh);
       if (data.user) setUser(data.user);
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      router.push("/dashboard");
+      router.push("/parametres");
     },
   });
 }

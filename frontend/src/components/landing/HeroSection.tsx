@@ -53,7 +53,7 @@ export function HeroSection() {
               href="/register"
               className="flex items-center justify-center gap-3 w-full sm:w-auto rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 px-8 py-4 text-base font-bold text-white shadow-xl shadow-indigo-600/30 hover:shadow-indigo-600/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <span>Démarrer l&apos;essai gratuit de 14 jours</span>
+              <span>Créer mon compte StockPro</span>
               <ArrowRight className="h-5 w-5" />
             </Link>
 
@@ -70,7 +70,7 @@ export function HeroSection() {
           <div className="mt-6 flex flex-wrap items-center justify-center gap-y-2 gap-x-6 text-xs text-zinc-400">
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-              <span>14 jours offerts sans CB</span>
+              <span>Abonnement flexible sans engagement</span>
             </div>
             <div className="flex items-center gap-1.5">
               <CheckCircle2 className="h-4 w-4 text-emerald-400" />

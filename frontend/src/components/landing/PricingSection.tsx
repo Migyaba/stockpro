@@ -44,7 +44,7 @@ export function PricingSection() {
         "Économie immédiate de 2 500 FCFA sur 3 mois",
         "Tranquillité d'esprit : 90 jours d'accès ininterrompu",
         "Historique des ventes & rapports analytiques étendus",
-        "Accompagnement gratuit à la configuration initiale",
+        "Accompagnement inclus à la configuration initiale",
         "Importation assistée de vos premiers produits Excel",
         "Support technique prioritaire 7j/7 sur WhatsApp",
       ],

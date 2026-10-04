@@ -53,13 +53,13 @@ class Organization(TimeStampedModel):
     prices_include_tax = models.BooleanField(default=True)
     max_discount_percent_manager = models.PositiveSmallIntegerField(default=10)
     status = models.CharField(
-        max_length=20, choices=OrganizationStatus.choices, default=OrganizationStatus.TRIAL
+        max_length=20, choices=OrganizationStatus.choices, default=OrganizationStatus.SUSPENDED
     )
     trial_ends_at = models.DateTimeField(null=True, blank=True)
     subscription_plan = models.CharField(
         max_length=20,
         choices=SubscriptionPlan.choices,
-        default=SubscriptionPlan.TRIAL,
+        default=SubscriptionPlan.MONTHLY,
     )
     subscription_ends_at = models.DateTimeField(null=True, blank=True)
     custom_monthly_price = models.PositiveIntegerField(
@@ -123,8 +123,8 @@ class PlatformSubscriptionConfig(models.Model):
         help_text="Tarif trimestriel global par défaut en FCFA (ex: 12500)."
     )
     trial_days = models.PositiveSmallIntegerField(
-        default=14,
-        help_text="Durée de la période d'essai gratuit en jours (ex: 14)."
+        default=0,
+        help_text="Durée de la période d'essai gratuit en jours (0 = désactivé)."
     )
     support_phone = models.CharField(
         max_length=32,
@@ -148,7 +148,7 @@ class PlatformSubscriptionConfig(models.Model):
             obj = cls.objects.create(
                 default_monthly_price=5000,
                 default_quarterly_price=12500,
-                trial_days=14,
+                trial_days=0,
                 support_phone="+22943507805",
             )
         return obj

@@ -43,14 +43,19 @@ class SubscriptionStatusView(APIView):
             verify_subscription_payment(latest_pending)
             org.refresh_from_db()
 
-        end_date = org.subscription_ends_at or org.trial_ends_at
+        # Si la date de fin d'abonnement est dépassée, passer l'organisation en SUSPENDED
+        if org.subscription_ends_at and org.subscription_ends_at <= now:
+            if org.status == OrganizationStatus.ACTIVE:
+                org.status = OrganizationStatus.SUSPENDED
+                org.save(update_fields=["status"])
+
+        end_date = org.subscription_ends_at
         days_remaining = max(0, (end_date - now).days) if end_date and end_date > now else 0
 
-        # Vérification si l'organisation a un accès valide
+        # Accès actif si le statut est ACTIVE et que la date d'abonnement n'est pas expirée
         has_active_access = (
             org.status == OrganizationStatus.ACTIVE
-            or (org.status == OrganizationStatus.TRIAL and org.trial_ends_at and org.trial_ends_at > now)
-            or (org.subscription_ends_at and org.subscription_ends_at > now)
+            and (org.subscription_ends_at is None or org.subscription_ends_at > now)
         )
 
         pricing_map = get_organization_plan_pricing(org)

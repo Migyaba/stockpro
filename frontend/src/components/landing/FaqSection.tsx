@@ -5,8 +5,8 @@ import { ChevronDown, HelpCircle } from "lucide-react";
 
 const FAQS = [
   {
-    q: "L'essai gratuit de 14 jours est-il vraiment sans engagement ?",
-    a: "Oui, à 100%. Vous créez votre compte en moins de 2 minutes sans renseigner aucune carte bancaire ni mode de paiement. Vous avez un accès complet à toutes les fonctionnalités pendant 14 jours pour tester avec vos vrais produits et vos équipes.",
+    q: "Comment fonctionne l'accès à StockPro ?",
+    a: "Vous créez votre compte en moins de 2 minutes. Pour activer votre espace et commencer à gérer vos stocks et vos ventes, il vous suffit de choisir votre formule (5 000 FCFA/mois ou 12 500 FCFA/trimestre) et de régler instantanément via Mobile Money (MTN, Moov, Wave, Orange Money) ou Carte Bancaire. L'accès est activé immédiatement.",
   },
   {
     q: "Quels sont les tarifs et comment s'effectue le paiement ?",

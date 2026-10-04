@@ -66,7 +66,7 @@ export function MultiDepotShowcase() {
                 href="/register"
                 className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition-all"
               >
-                <span>Configurer mes dépôts gratuitement</span>
+                <span>Configurer mes dépôts sur StockPro</span>
                 <Warehouse className="h-4 w-4" />
               </Link>
             </div>

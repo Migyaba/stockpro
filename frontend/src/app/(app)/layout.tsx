@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -14,6 +15,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {/* Main column */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
+        <SubscriptionBanner />
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>

@@ -12,7 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.accounts.models import Invitation, Membership, Role, User
 from apps.accounts.tokens import issue_tokens
 from apps.inventory.models import Warehouse
-from apps.organizations.models import Organization
+from apps.organizations.models import Organization, OrganizationStatus, SubscriptionPlan
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -53,8 +53,9 @@ class RegisterSerializer(serializers.Serializer):
             country=validated["country"].upper(),
             currency=validated["currency"].upper(),
             timezone=validated["timezone"],
-            status="TRIAL",
-            trial_ends_at=timezone.now() + timedelta(days=14),
+            status=OrganizationStatus.SUSPENDED,
+            subscription_plan=SubscriptionPlan.MONTHLY,
+            trial_ends_at=None,
         )
         membership = Membership.objects.create(
             user=user, organization=org, role=Role.OWNER, is_active=True

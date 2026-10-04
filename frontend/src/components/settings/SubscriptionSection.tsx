@@ -52,12 +52,17 @@ export function SubscriptionSection() {
     },
   });
 
-  // Détection du retour de paiement AlphaPay dans l'URL (?payment=success)
+  // Détection du retour de paiement AlphaPay dans l'URL (?payment=success) ou du plan présélectionné
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const isPaymentSuccess = params.get("payment") === "success";
       const paymentRef = params.get("ref");
+      const planParam = params.get("plan");
+
+      if (planParam === "quarterly" || planParam === "monthly") {
+        setSelectedPlan(planParam);
+      }
 
       if (isPaymentSuccess) {
         setSuccessMsg("Vérification de la confirmation de votre paiement en cours...");
@@ -133,10 +138,10 @@ export function SubscriptionSection() {
                 className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
                   sub?.has_active_access
                     ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
-                    : "bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border border-rose-200 dark:border-rose-800"
+                    : "bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
                 }`}
               >
-                {sub?.has_active_access ? "Actif & Opérationnel" : "Expiré"}
+                {sub?.has_active_access ? "Actif & Opérationnel" : "En attente d'abonnement"}
               </span>
               {hasCustomPricing && (
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
@@ -146,21 +151,23 @@ export function SubscriptionSection() {
               )}
             </div>
             <h3 className="text-xl font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight">
-              {sub?.plan === "MONTHLY"
-                ? `Formule Mensuelle (${monthlyAmount.toLocaleString("fr-FR")} FCFA/mois)`
-                : sub?.plan === "QUARTERLY"
-                ? `Formule Trimestrielle (${quarterlyAmount.toLocaleString("fr-FR")} FCFA/trimestre)`
-                : sub?.plan === "CUSTOM"
-                ? "Déploiement Sur-Mesure Dédié"
-                : "Période d'Essai Gratuit 14 jours"}
+              {sub?.has_active_access
+                ? sub?.plan === "MONTHLY"
+                  ? `Formule Mensuelle (${monthlyAmount.toLocaleString("fr-FR")} FCFA/mois)`
+                  : sub?.plan === "QUARTERLY"
+                  ? `Formule Trimestrielle (${quarterlyAmount.toLocaleString("fr-FR")} FCFA/trimestre)`
+                  : sub?.plan === "CUSTOM"
+                  ? "Déploiement Sur-Mesure Dédié"
+                  : "Abonnement Actif"
+                : "Aucun abonnement actif — Activation requise"}
             </h3>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 text-center min-w-[110px]">
-              <div className="text-2xl font-black">{sub?.days_remaining ?? 0}</div>
+              <div className="text-2xl font-black">{sub?.has_active_access ? (sub?.days_remaining ?? 0) : 0}</div>
               <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Jours restants
+                {sub?.has_active_access ? "Jours restants" : "Inactif"}
               </div>
             </div>
           </div>
@@ -178,13 +185,7 @@ export function SubscriptionSection() {
                       month: "long",
                       year: "numeric",
                     })
-                  : sub?.trial_ends_at
-                  ? new Date(sub.trial_ends_at).toLocaleDateString("fr-FR", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })
-                  : "Non définie"}
+                  : "Non définie (Abonnement requis)"}
               </strong>
             </span>
           </div>
@@ -196,6 +197,19 @@ export function SubscriptionSection() {
         </div>
       </div>
 
+      {/* Alerte si le compte est inactif et attend un premier abonnement */}
+      {sub && !sub.has_active_access && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500 mt-0.5" />
+          <div>
+            <p className="font-semibold text-sm">Compte en attente d&apos;activation</p>
+            <p className="mt-1 leading-relaxed">
+              Pour commencer à enregistrer vos ventes, ajouter vos produits et gérer vos stocks, veuillez choisir l&apos;une des formules ci-dessous et régler via Mobile Money (MTN, Moov, Wave, Orange Money). L&apos;activation de votre espace est instantanée dès confirmation de paiement.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Alerte si un tarif personnalisé a été accordé par l'administrateur */}
       {hasCustomPricing && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50/80 border border-indigo-200 text-indigo-900 dark:bg-indigo-950/40 dark:border-indigo-800 dark:text-indigo-300 text-xs">
@@ -206,8 +220,8 @@ export function SubscriptionSection() {
         </div>
       )}
 
-      {/* Alerte si proche de l'expiration */}
-      {sub && sub.days_remaining <= 5 && (
+      {/* Alerte si proche de l'expiration (actif) */}
+      {sub && sub.has_active_access && sub.days_remaining <= 5 && (
         <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-xs">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" />
           <p>
@@ -299,7 +313,7 @@ export function SubscriptionSection() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                <span>Renouveler pour {monthlyAmount.toLocaleString("fr-FR")} FCFA</span>
+                <span>{sub?.has_active_access ? "Renouveler" : "Activer mon compte"} ({monthlyAmount.toLocaleString("fr-FR")} FCFA)</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </>
             )}
@@ -363,7 +377,7 @@ export function SubscriptionSection() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                <span>Renouveler pour {quarterlyAmount.toLocaleString("fr-FR")} FCFA</span>
+                <span>{sub?.has_active_access ? "Renouveler" : "Activer mon compte"} ({quarterlyAmount.toLocaleString("fr-FR")} FCFA)</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </>
             )}
