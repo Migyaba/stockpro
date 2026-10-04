@@ -366,3 +366,48 @@ export function getStockLevel(
   if (quantity < minimumStock * 2) return "low";
   return "normal";
 }
+
+// ─── Billing & Subscriptions (AlphaPay) ────────────────────────────────────
+export type SubscriptionPlan = "TRIAL" | "MONTHLY" | "QUARTERLY" | "CUSTOM";
+
+export interface SubscriptionPaymentRecord {
+  id: string;
+  reference: string;
+  plan: SubscriptionPlan;
+  amount: number;
+  currency: string;
+  status: "PENDING" | "COMPLETED" | "FAILED" | "CANCELLED";
+  created_at: string;
+  paid_at: string | null;
+}
+
+export interface SubscriptionStatus {
+  organization_id: string;
+  organization_name: string;
+  status: OrgStatus;
+  plan: SubscriptionPlan;
+  has_active_access: boolean;
+  trial_ends_at: string | null;
+  subscription_ends_at: string | null;
+  days_remaining: number;
+  pricing: {
+    monthly: { amount: number; period: string; label: string };
+    quarterly: { amount: number; period: string; label: string };
+  };
+  recent_payments: SubscriptionPaymentRecord[];
+}
+
+export interface CheckoutSessionPayload {
+  plan: "monthly" | "quarterly";
+  phone?: string;
+  return_url?: string;
+}
+
+export interface CheckoutSessionResponse {
+  checkout_url: string;
+  reference: string;
+  amount: number;
+  plan: string;
+  is_sandbox?: boolean;
+}
+

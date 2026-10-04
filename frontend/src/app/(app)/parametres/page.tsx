@@ -17,6 +17,7 @@ import {
   Globe,
   Coins,
   Percent,
+  CreditCard,
 } from "lucide-react";
 import {
   useOrganizationProfile,
@@ -30,9 +31,10 @@ import {
 } from "@/lib/hooks/useWarehouses";
 import { NewWarehouseSheet } from "@/components/settings/NewWarehouseSheet";
 import { InviteMemberSheet } from "@/components/settings/InviteMemberSheet";
+import { SubscriptionSection } from "@/components/settings/SubscriptionSection";
 import type { Role } from "@/lib/types/api";
 
-type SettingsTab = "org" | "warehouses" | "team" | "security";
+type SettingsTab = "org" | "warehouses" | "team" | "security" | "billing";
 
 export default function ParametresPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("org");
@@ -196,6 +198,18 @@ export default function ParametresPage() {
         >
           <Shield className="h-4 w-4" />
           <span>Sécurité & Données</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("billing")}
+          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
+            activeTab === "billing"
+              ? "bg-indigo-600 text-white shadow-xs"
+              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
+          }`}
+        >
+          <CreditCard className="h-4 w-4" />
+          <span>Abonnement & Facturation</span>
         </button>
       </div>
 
@@ -584,6 +598,9 @@ export default function ParametresPage() {
           </div>
         </div>
       )}
+
+      {/* ─── Tab 5 : Facturation & Abonnement AlphaPay ──────────────────── */}
+      {activeTab === "billing" && <SubscriptionSection />}
 
       {/* ─── Modales & Fiches ─────────────────────────────────────────────── */}
       <NewWarehouseSheet

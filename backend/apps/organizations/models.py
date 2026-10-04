@@ -21,6 +21,20 @@ class OrganizationStatus(models.TextChoices):
     CANCELLED = "CANCELLED"
 
 
+class SubscriptionPlan(models.TextChoices):
+    TRIAL = "TRIAL", "Essai Gratuit 14j"
+    MONTHLY = "MONTHLY", "Mensuel (5 000 F)"
+    QUARTERLY = "QUARTERLY", "Trimestriel (12 500 F)"
+    CUSTOM = "CUSTOM", "Déploiement Sur-Mesure"
+
+
+class PaymentStatus(models.TextChoices):
+    PENDING = "PENDING", "En attente"
+    COMPLETED = "COMPLETED", "Payé"
+    FAILED = "FAILED", "Échoué"
+    CANCELLED = "CANCELLED", "Annulé"
+
+
 class Organization(TimeStampedModel):
     name = models.CharField(max_length=200)
     slug = models.SlugField(max_length=220, unique=True)
@@ -42,6 +56,12 @@ class Organization(TimeStampedModel):
         max_length=20, choices=OrganizationStatus.choices, default=OrganizationStatus.TRIAL
     )
     trial_ends_at = models.DateTimeField(null=True, blank=True)
+    subscription_plan = models.CharField(
+        max_length=20,
+        choices=SubscriptionPlan.choices,
+        default=SubscriptionPlan.TRIAL,
+    )
+    subscription_ends_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["name"]
@@ -75,3 +95,28 @@ class DocumentSequence(models.Model):
                 fields=["organization", "kind"], name="uniq_org_document_kind"
             )
         ]
+
+
+class SubscriptionPayment(TimeStampedModel):
+    organization = models.ForeignKey(
+        Organization, on_delete=models.CASCADE, related_name="subscription_payments"
+    )
+    reference = models.CharField(max_length=64, unique=True)
+    plan = models.CharField(max_length=20, choices=SubscriptionPlan.choices)
+    amount = models.PositiveIntegerField(help_text="Montant en FCFA")
+    currency = models.CharField(max_length=3, default="XOF")
+    alphapay_checkout_id = models.CharField(max_length=128, blank=True, null=True)
+    alphapay_slug = models.CharField(max_length=128, blank=True, null=True)
+    status = models.CharField(
+        max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING
+    )
+    paid_at = models.DateTimeField(null=True, blank=True)
+    customer_phone = models.CharField(max_length=32, blank=True)
+    customer_email = models.EmailField(blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.reference} - {self.organization.name} ({self.amount} {self.currency})"

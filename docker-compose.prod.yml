@@ -78,6 +78,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-stockpro-media}
+      ALPHAPAY_SECRET_KEY: ${ALPHAPAY_SECRET_KEY:-}
+      ALPHAPAY_WEBHOOK_SECRET: ${ALPHAPAY_WEBHOOK_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://stockpro.miguelmissetcho.com}
     volumes:
       - stockpro_static_prod:/app/staticfiles
     networks:

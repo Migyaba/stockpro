@@ -253,3 +253,8 @@ SIMPLE_JWT = {
 
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+
+# ─── AlphaPay (Mobile Money & Card Payments) ──────────────────────────────────
+ALPHAPAY_SECRET_KEY = os.getenv("ALPHAPAY_SECRET_KEY", "")
+ALPHAPAY_WEBHOOK_SECRET = os.getenv("ALPHAPAY_WEBHOOK_SECRET", "")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://stockpro.miguelmissetcho.com")

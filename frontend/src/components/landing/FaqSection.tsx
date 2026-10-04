@@ -9,8 +9,12 @@ const FAQS = [
     a: "Oui, à 100%. Vous créez votre compte en moins de 2 minutes sans renseigner aucune carte bancaire ni mode de paiement. Vous avez un accès complet à toutes les fonctionnalités pendant 14 jours pour tester avec vos vrais produits et vos équipes.",
   },
   {
-    q: "Quels sont les moyens de paiement acceptés en Afrique ?",
-    a: "Nous acceptons directement les moyens de paiement les plus populaires : MTN Mobile Money, Moov Money, Orange Money, Wave, ainsi que les Cartes Bancaires (Visa, Mastercard) et les virements bancaires pour les forfaits annuels.",
+    q: "Quels sont les tarifs et comment s'effectue le paiement ?",
+    a: "Nos tarifs sont clairs et abordables : 5 000 FCFA par mois, ou 12 500 FCFA par trimestre (soit ~4 160 FCFA/mois). Grâce à notre passerelle de paiement AlphaPay, vous réglez en quelques clics via votre Mobile Money (MTN MoMo, Moov Money, Orange Money, Wave) ou par carte bancaire. L'activation de votre accès est instantanée.",
+  },
+  {
+    q: "Est-il possible d'installer StockPro sur mon propre serveur ou réseau d'entreprise ?",
+    a: "Absolument. Avec notre formule 'Déploiement Sur-Mesure', notre équipe s'occupe personnellement d'installer et configurer StockPro sur votre serveur dédié ou machine locale, avec votre nom de domaine personnalisé, la migration de vos anciens fichiers Excel et la formation de tout votre personnel.",
   },
   {
     q: "Est-ce facile à prendre en main pour mes caissiers et magasiniers ?",

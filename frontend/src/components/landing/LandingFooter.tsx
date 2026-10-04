@@ -118,12 +118,12 @@ export function LandingFooter() {
               </li>
               <li>
                 <a
-                  href="https://wa.me/22900000000"
+                  href="https://wa.me/22943507805"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="hover:text-white transition-colors text-emerald-400"
                 >
-                  Assistance WhatsApp 7j/7
+                  Assistance WhatsApp (+229 43 50 78 05)
                 </a>
               </li>
             </ul>
