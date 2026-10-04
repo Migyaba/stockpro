@@ -134,7 +134,7 @@ class AlphaPayWebhookView(APIView):
 
         if webhook_secret:
             try:
-                from alphapay import AlphaPayWebhookSignatureError, verify_signature
+                from alphapay import AlphaPayWebhookSignatureError, verify_signature  # type: ignore
                 event = verify_signature(
                     payload=raw_body,
                     signature=request.headers.get("X-Webhook-Signature", ""),

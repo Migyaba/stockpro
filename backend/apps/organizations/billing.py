@@ -43,7 +43,7 @@ def get_alphapay_client():
     if not secret_key:
         return None
     try:
-        from alphapay import AlphaPayClient
+        from alphapay import AlphaPayClient  # type: ignore
         return AlphaPayClient(secret_key)
     except ImportError:
         logger.error("Le package 'alphapay' n'est pas installé.")
@@ -156,7 +156,7 @@ def activate_subscription_from_payment(payment: SubscriptionPayment):
     # Si l'organisation avait encore du temps, on ajoute les jours à la fin existante
     base_date = current_end if current_end and current_end > now else now
 
-    days = PLAN_PRICING.get(payment.plan, {}).get("days", 30)
+    days = 90 if payment.plan == SubscriptionPlan.QUARTERLY else 30
     new_end_date = base_date + timedelta(days=days)
 
     org.subscription_plan = payment.plan
