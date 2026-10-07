@@ -1,6 +1,7 @@
 import json
 import logging
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -34,29 +35,31 @@ class SubscriptionStatusView(APIView):
         now = timezone.now()
 
         # Si le paiement le plus récent est en attente, interroger AlphaPay en direct
+        # (au plus une fois toutes les 15 s par paiement pour ne pas saturer l'API).
         latest_pending = (
             SubscriptionPayment.objects.filter(organization=org, status=PaymentStatus.PENDING)
             .order_by("-created_at")
             .first()
         )
-        if latest_pending:
+        if latest_pending and cache.add(f"alphapay-verify:{latest_pending.pk}", 1, 15):
             verify_subscription_payment(latest_pending)
             org.refresh_from_db()
 
-        # Si la date de fin d'abonnement est dépassée, passer l'organisation en SUSPENDED
-        if org.subscription_ends_at and org.subscription_ends_at <= now:
-            if org.status == OrganizationStatus.ACTIVE:
-                org.status = OrganizationStatus.SUSPENDED
-                org.save(update_fields=["status"])
+        # Les droits d'accès sont évalués à chaque requête (HasPermission); ici on
+        # synchronise seulement le statut stocké pour l'affichage et l'admin.
+        if (
+            org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.TRIAL)
+            and not org.has_operational_access(now)
+        ):
+            org.status = OrganizationStatus.SUSPENDED
+            org.save(update_fields=["status"])
 
-        end_date = org.subscription_ends_at
+        has_active_access = org.has_operational_access(now)
+        if org.status == OrganizationStatus.TRIAL:
+            end_date = org.trial_ends_at
+        else:
+            end_date = org.subscription_ends_at
         days_remaining = max(0, (end_date - now).days) if end_date and end_date > now else 0
-
-        # Accès actif si le statut est ACTIVE et que la date d'abonnement n'est pas expirée
-        has_active_access = (
-            org.status == OrganizationStatus.ACTIVE
-            and (org.subscription_ends_at is None or org.subscription_ends_at > now)
-        )
 
         pricing_map = get_organization_plan_pricing(org)
         monthly_cfg = pricing_map[SubscriptionPlan.MONTHLY]
@@ -132,8 +135,11 @@ class CheckoutSessionView(APIView):
             return Response(checkout_data, status=status.HTTP_201_CREATED)
         except Exception as e:
             logger.exception("Échec d'initialisation du checkout AlphaPay: %s", e)
+            message = str(e) if isinstance(e, ValueError) else (
+                "Impossible d'initialiser le paiement. Veuillez réessayer."
+            )
             return Response(
-                {"error": {"code": "checkout_failed", "message": str(e)}},
+                {"error": {"code": "checkout_failed", "message": message}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -187,6 +193,10 @@ class AlphaPayWebhookView(APIView):
     def post(self, request):
         raw_body = request.body
         webhook_secret = getattr(settings, "ALPHAPAY_WEBHOOK_SECRET", None)
+
+        if not webhook_secret and not settings.DEBUG:
+            logger.error("Webhook AlphaPay refusé : ALPHAPAY_WEBHOOK_SECRET non configuré.")
+            return Response({"error": "Webhook non configuré"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         if webhook_secret:
             try:

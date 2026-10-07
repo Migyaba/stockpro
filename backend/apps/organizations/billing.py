@@ -2,6 +2,7 @@ import logging
 import uuid
 from datetime import timedelta
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 from .models import (
     Organization,
@@ -145,33 +146,41 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
 def activate_subscription_from_payment(payment: SubscriptionPayment):
     """
     Active ou prolonge l'abonnement de l'organisation suite à un paiement réussi.
+    Idempotent: le verrou de ligne empêche le webhook et la vérification manuelle
+    de prolonger deux fois le même paiement.
     """
-    if payment.status == PaymentStatus.COMPLETED:
-        return payment
+    with transaction.atomic():
+        locked = SubscriptionPayment.objects.select_for_update().get(pk=payment.pk)
+        if locked.status == PaymentStatus.COMPLETED:
+            payment.status = locked.status
+            return payment
 
-    now = timezone.now()
-    org = payment.organization
-    current_end = org.subscription_ends_at
+        now = timezone.now()
+        org = Organization.objects.select_for_update().get(pk=locked.organization_id)
+        current_end = org.subscription_ends_at
 
-    # Si l'organisation avait encore du temps, on ajoute les jours à la fin existante
-    base_date = current_end if current_end and current_end > now else now
+        # Si l'organisation avait encore du temps, on ajoute les jours à la fin existante
+        base_date = current_end if current_end and current_end > now else now
 
-    days = 90 if payment.plan == SubscriptionPlan.QUARTERLY else 30
-    new_end_date = base_date + timedelta(days=days)
+        days = 90 if locked.plan == SubscriptionPlan.QUARTERLY else 30
+        new_end_date = base_date + timedelta(days=days)
 
-    org.subscription_plan = payment.plan
-    org.subscription_ends_at = new_end_date
-    org.status = OrganizationStatus.ACTIVE
-    org.save(update_fields=["subscription_plan", "subscription_ends_at", "status"])
+        org.subscription_plan = locked.plan
+        org.subscription_ends_at = new_end_date
+        org.status = OrganizationStatus.ACTIVE
+        org.save(update_fields=["subscription_plan", "subscription_ends_at", "status"])
 
-    payment.status = PaymentStatus.COMPLETED
-    payment.paid_at = now
-    payment.save(update_fields=["status", "paid_at"])
+        locked.status = PaymentStatus.COMPLETED
+        locked.paid_at = now
+        locked.save(update_fields=["status", "paid_at"])
+
+    payment.status = locked.status
+    payment.paid_at = locked.paid_at
 
     logger.info(
         "Abonnement activé pour l'organisation '%s' (Plan: %s, Jusqu'au: %s)",
         org.name,
-        payment.plan,
+        locked.plan,
         new_end_date.strftime("%Y-%m-%d %H:%M"),
     )
     return payment

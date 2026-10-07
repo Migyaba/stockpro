@@ -68,9 +68,9 @@ export function LandingFooter() {
                 </a>
               </li>
               <li>
-                <a href="#tarifs" className="text-indigo-400 hover:text-indigo-300 transition-colors">
-                  Tarifs & Abonnements
-                </a>
+                <Link href="/register" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+                  Essai Gratuit 7j
+                </Link>
               </li>
             </ul>
           </div>

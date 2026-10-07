@@ -4,14 +4,17 @@ import sys
 import os
 
 import dj_database_url
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR.parent / ".env")
 load_dotenv(BASE_DIR / ".env")
 
+DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
-DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() == "true"
+if not DEBUG and "test" not in sys.argv and SECRET_KEY.startswith(("dev-only", "stockpro-dev", "generate-a")):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY doit être défini avec une valeur secrète en production.")
 ALLOWED_HOSTS = [
     h.strip()
     for h in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend,0.0.0.0").split(",")

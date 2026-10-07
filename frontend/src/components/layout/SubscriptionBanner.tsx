@@ -16,7 +16,12 @@ export function SubscriptionBanner() {
   });
 
   // Ne pas afficher si l'accès est actif ou si les données ne sont pas encore chargées
-  if (!sub || sub.has_active_access) {
+  if (!sub) {
+    return null;
+  }
+
+  const isTrial = sub.has_active_access && sub.status === "TRIAL";
+  if (sub.has_active_access && !isTrial) {
     return null;
   }
 
@@ -33,7 +38,15 @@ export function SubscriptionBanner() {
           <AlertTriangle className="h-3.5 w-3.5" />
         </div>
         <p className="font-medium">
-          <strong className="font-bold">Compte en attente d&apos;activation :</strong> Vos opérations (ventes, stocks, tickets) sont actuellement verrouillées. Choisissez une formule pour activer votre espace.
+          {isTrial ? (
+            <>
+              <strong className="font-bold">Essai gratuit :</strong> il vous reste {sub.days_remaining} jour{sub.days_remaining > 1 ? "s" : ""}. Choisissez une formule pour continuer sans interruption.
+            </>
+          ) : (
+            <>
+              <strong className="font-bold">Essai terminé :</strong> vos opérations (ventes, stocks, tickets) sont verrouillées. Choisissez une formule pour réactiver votre espace.
+            </>
+          )}
         </p>
       </div>
 

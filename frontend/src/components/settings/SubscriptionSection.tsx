@@ -131,7 +131,7 @@ export function SubscriptionSection() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-6 border-b border-zinc-200 dark:border-zinc-800">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+              <span className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
                 Statut de l'organisation
               </span>
               <span
@@ -152,35 +152,37 @@ export function SubscriptionSection() {
             </div>
             <h3 className="text-xl font-extrabold text-zinc-900 dark:text-zinc-50 tracking-tight">
               {sub?.has_active_access
-                ? sub?.plan === "MONTHLY"
+                ? sub?.status === "TRIAL"
+                  ? "Période d'Essai Gratuit 7 jours"
+                  : sub?.plan === "MONTHLY"
                   ? `Formule Mensuelle (${monthlyAmount.toLocaleString("fr-FR")} FCFA/mois)`
                   : sub?.plan === "QUARTERLY"
                   ? `Formule Trimestrielle (${quarterlyAmount.toLocaleString("fr-FR")} FCFA/trimestre)`
                   : sub?.plan === "CUSTOM"
                   ? "Déploiement Sur-Mesure Dédié"
                   : "Abonnement Actif"
-                : "Aucun abonnement actif — Activation requise"}
+                : "Essai terminé — Abonnement requis"}
             </h3>
           </div>
 
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 text-center min-w-[110px]">
               <div className="text-2xl font-black">{sub?.has_active_access ? (sub?.days_remaining ?? 0) : 0}</div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
                 {sub?.has_active_access ? "Jours restants" : "Inactif"}
               </div>
             </div>
           </div>
         </div>
 
-        <div className="pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+        <div className="pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-zinc-400">
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-zinc-400" />
             <span>
               Échéance :{" "}
               <strong className="text-zinc-800 dark:text-zinc-200">
-                {sub?.subscription_ends_at
-                  ? new Date(sub.subscription_ends_at).toLocaleDateString("fr-FR", {
+                {(sub?.status === "TRIAL" ? sub?.trial_ends_at : sub?.subscription_ends_at)
+                  ? new Date((sub?.status === "TRIAL" ? sub?.trial_ends_at : sub?.subscription_ends_at) as string).toLocaleDateString("fr-FR", {
                       day: "numeric",
                       month: "long",
                       year: "numeric",
@@ -202,9 +204,9 @@ export function SubscriptionSection() {
         <div className="flex items-start gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500 mt-0.5" />
           <div>
-            <p className="font-semibold text-sm">Compte en attente d&apos;activation</p>
+            <p className="font-semibold text-sm">Essai gratuit terminé</p>
             <p className="mt-1 leading-relaxed">
-              Pour commencer à enregistrer vos ventes, ajouter vos produits et gérer vos stocks, veuillez choisir l&apos;une des formules ci-dessous et régler via Mobile Money (MTN, Moov, Wave, Orange Money). L&apos;activation de votre espace est instantanée dès confirmation de paiement.
+              Pour continuer à enregistrer vos ventes et gérer vos stocks, veuillez choisir l&apos;une des formules ci-dessous et régler via Mobile Money (MTN, Moov, Wave, Orange Money). L&apos;activation de votre espace est instantanée dès confirmation de paiement.
             </p>
           </div>
         </div>
@@ -249,7 +251,7 @@ export function SubscriptionSection() {
           <Smartphone className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
           <span>Numéro Mobile Money pour le débit (Optionnel)</span>
         </label>
-        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+        <p className="text-[11px] text-zinc-400">
           Ce numéro sera pré-rempli sur la page AlphaPay. Vous pouvez aussi le renseigner directement lors du paiement.
         </p>
         <input
@@ -274,7 +276,7 @@ export function SubscriptionSection() {
                 {isMonthlyCustom ? "Tarif sur-mesure" : "Sans engagement"}
               </span>
             </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+            <p className="text-xs text-zinc-400 mb-4">
               Renouvellement pour 30 jours complets d'accès à StockPro.
             </p>
 
@@ -338,7 +340,7 @@ export function SubscriptionSection() {
                 {isQuarterlyCustom ? "Tarif sur-mesure" : "Le Plus Choisi"}
               </span>
             </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+            <p className="text-xs text-zinc-400 mb-4">
               90 jours d'accès complet sans coupure (revient à {monthlyEquivalent.toLocaleString("fr-FR")} F/mois).
             </p>
 
@@ -392,7 +394,7 @@ export function SubscriptionSection() {
             <PhoneCall className="h-4 w-4 text-amber-500" />
             <span>Besoin d'un déploiement sur votre propre serveur ou réseau local ?</span>
           </h4>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-xl">
+          <p className="text-xs text-zinc-400 mt-1 max-w-xl">
             Notre équipe installe StockPro chez vous sur devis personnalisé, avec nom de domaine dédié, importation de vos catalogues et formation sur site.
           </p>
         </div>

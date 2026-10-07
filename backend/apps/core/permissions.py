@@ -1,7 +1,5 @@
 from rest_framework.permissions import BasePermission
 
-OPERATIONAL_STATUSES = {"ACTIVE"}
-
 ROLE_PERMISSIONS = {
     "OWNER": {
         "products.view",
@@ -112,8 +110,8 @@ class HasPermission(BasePermission):
         if membership is None:
             return False
         org = request.organization
-        if org.status not in OPERATIONAL_STATUSES:
-            if org.status == "SUSPENDED" and self.required in SAFE_WHEN_SUSPENDED:
+        if not org.has_operational_access():
+            if org.status != "CANCELLED" and self.required in SAFE_WHEN_SUSPENDED:
                 return membership.has_perm(self.required)
             return False
         return membership.has_perm(self.required)

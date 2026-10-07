@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.core.models import TimeStampedModel
@@ -22,7 +23,7 @@ class OrganizationStatus(models.TextChoices):
 
 
 class SubscriptionPlan(models.TextChoices):
-    TRIAL = "TRIAL", "Essai Gratuit 14j"
+    TRIAL = "TRIAL", "Essai Gratuit 7j"
     MONTHLY = "MONTHLY", "Mensuel (5 000 F)"
     QUARTERLY = "QUARTERLY", "Trimestriel (12 500 F)"
     CUSTOM = "CUSTOM", "Déploiement Sur-Mesure"
@@ -96,6 +97,15 @@ class Organization(TimeStampedModel):
             or (self.custom_quarterly_price is not None and self.custom_quarterly_price > 0)
         )
 
+    def has_operational_access(self, now=None) -> bool:
+        """Accès autorisé: abonnement payé en cours, ou essai gratuit non expiré."""
+        now = now or timezone.now()
+        if self.status == OrganizationStatus.ACTIVE:
+            return self.subscription_ends_at is None or self.subscription_ends_at > now
+        if self.status == OrganizationStatus.TRIAL:
+            return self.trial_ends_at is not None and self.trial_ends_at > now
+        return False
+
     def save(self, *args, **kwargs):
         if not self.slug:
             base = slugify(self.name) or "org"
@@ -123,7 +133,7 @@ class PlatformSubscriptionConfig(models.Model):
         help_text="Tarif trimestriel global par défaut en FCFA (ex: 12500)."
     )
     trial_days = models.PositiveSmallIntegerField(
-        default=0,
+        default=7,
         help_text="Durée de la période d'essai gratuit en jours (0 = désactivé)."
     )
     support_phone = models.CharField(
@@ -148,7 +158,7 @@ class PlatformSubscriptionConfig(models.Model):
             obj = cls.objects.create(
                 default_monthly_price=5000,
                 default_quarterly_price=12500,
-                trial_days=0,
+                trial_days=7,
                 support_phone="+22943507805",
             )
         return obj

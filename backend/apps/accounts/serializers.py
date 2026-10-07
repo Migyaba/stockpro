@@ -12,7 +12,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.accounts.models import Invitation, Membership, Role, User
 from apps.accounts.tokens import issue_tokens
 from apps.inventory.models import Warehouse
-from apps.organizations.models import Organization, OrganizationStatus, SubscriptionPlan
+from apps.organizations.models import (
+    Organization,
+    OrganizationStatus,
+    PlatformSubscriptionConfig,
+    SubscriptionPlan,
+)
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -47,15 +52,17 @@ class RegisterSerializer(serializers.Serializer):
             last_name=validated["last_name"],
             phone=validated.get("phone", ""),
         )
+        trial_days = PlatformSubscriptionConfig.get_config().trial_days
+        now = timezone.now()
         org = Organization.objects.create(
             name=validated["organization_name"],
             email=user.email,
             country=validated["country"].upper(),
             currency=validated["currency"].upper(),
             timezone=validated["timezone"],
-            status=OrganizationStatus.SUSPENDED,
-            subscription_plan=SubscriptionPlan.MONTHLY,
-            trial_ends_at=None,
+            status=OrganizationStatus.TRIAL if trial_days else OrganizationStatus.SUSPENDED,
+            subscription_plan=SubscriptionPlan.TRIAL if trial_days else SubscriptionPlan.MONTHLY,
+            trial_ends_at=now + timedelta(days=trial_days) if trial_days else None,
         )
         membership = Membership.objects.create(
             user=user, organization=org, role=Role.OWNER, is_active=True

@@ -141,3 +141,58 @@ class SaleStockTests(StockProAPITestCase):
         self.assertEqual(received.data["status"], "PARTIALLY_RECEIVED")
         pos = StockPosition.objects.get(product_id=self.product_id)
         self.assertEqual(pos.quantity, 50)
+
+
+class TrialAndBillingTests(StockProAPITestCase):
+    def test_new_org_gets_7_day_trial_with_access(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.organizations.models import Organization
+
+        self.auth(self.register("trial@example.com", "Essai SARL"))
+        org = Organization.objects.get(name="Essai SARL")
+        self.assertEqual(org.status, "TRIAL")
+        remaining = org.trial_ends_at - timezone.now()
+        self.assertAlmostEqual(remaining, timedelta(days=7), delta=timedelta(minutes=1))
+        self.assertEqual(self.client.get("/api/products/").status_code, 200)
+
+    def test_expired_trial_blocks_operations_but_not_billing(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from apps.organizations.models import Organization
+
+        self.auth(self.register("exp@example.com", "Expire SARL"))
+        Organization.objects.filter(name="Expire SARL").update(
+            trial_ends_at=timezone.now() - timedelta(minutes=1)
+        )
+        self.assertEqual(self.client.get("/api/products/").status_code, 403)
+        sub = self.client.get("/api/billing/subscription/")
+        self.assertEqual(sub.status_code, 200, sub.data)
+        self.assertFalse(sub.data["has_active_access"])
+
+    def test_payment_activation_is_idempotent(self):
+        from apps.organizations.billing import activate_subscription_from_payment
+        from apps.organizations.models import Organization, SubscriptionPayment
+
+        self.register("pay@example.com", "Pay SARL")
+        org = Organization.objects.get(name="Pay SARL")
+        payment = SubscriptionPayment.objects.create(
+            organization=org, reference="SUB-TEST", plan="MONTHLY", amount=5000
+        )
+        activate_subscription_from_payment(payment)
+        org.refresh_from_db()
+        first_end = org.subscription_ends_at
+        activate_subscription_from_payment(SubscriptionPayment.objects.get(pk=payment.pk))
+        org.refresh_from_db()
+        self.assertEqual(org.subscription_ends_at, first_end)
+        self.assertEqual(org.status, "ACTIVE")
+
+    def test_webhook_rejected_without_secret(self):
+        res = self.client.post(
+            "/api/billing/webhook/alphapay/", {"event": "payment.succeeded"}, format="json"
+        )
+        self.assertEqual(res.status_code, 503)
