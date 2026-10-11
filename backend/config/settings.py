@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "apps.purchases",
     "apps.sales",
     "apps.reports",
+    "apps.notifications",
 ]
 
 MIDDLEWARE = [
@@ -282,6 +283,8 @@ SPECTACULAR_SETTINGS = {
         {"name": "Fournisseurs", "description": "Fiches fournisseurs."},
         {"name": "Dashboard", "description": "Indicateurs du jour."},
         {"name": "Rapports", "description": "Synthèses par période et exports CSV."},
+        {"name": "Notifications", "description": "Notifications internes du membre connecté."},
+        {"name": "Audit", "description": "Journal des actions (Owner / Administrator)."},
         {"name": "Système", "description": "Santé du service."},
     ],
     "SWAGGER_UI_SETTINGS": {

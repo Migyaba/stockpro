@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
+  History,
   Building,
   Boxes,
   Users,
@@ -39,14 +40,16 @@ import { formatDate } from "@/lib/utils/format";
 import { toast } from "@/lib/stores/toastStore";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { ChangePasswordForm } from "@/components/settings/ChangePasswordForm";
+import { AuditLogSection } from "@/components/settings/AuditLogSection";
 import { EditMemberSheet } from "@/components/settings/EditMemberSheet";
 
-type SettingsTab = "org" | "warehouses" | "team" | "security" | "billing";
+type SettingsTab = "org" | "warehouses" | "team" | "audit" | "security" | "billing";
 
 const TAB_PERMISSIONS: Record<SettingsTab, string | null> = {
   org: "settings.view",
   warehouses: "settings.view",
   team: "users.view",
+  audit: "audit.view",
   security: null,
   billing: "billing.manage",
 };
@@ -223,6 +226,20 @@ export default function ParametresPage() {
             >
               {members.length}
             </span>
+          </button>
+        )}
+
+        {canSeeTab("audit") && (
+          <button
+            onClick={() => setActiveTab("audit")}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
+              currentTab === "audit"
+                ? "bg-indigo-600 text-white shadow-xs"
+                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            <History className="h-4 w-4" />
+            <span>Journal</span>
           </button>
         )}
 
@@ -637,6 +654,7 @@ export default function ParametresPage() {
       />
 
       {/* ─── Tab 4 : Mon compte (tous les rôles) ──────────────────────────── */}
+      {currentTab === "audit" && <AuditLogSection />}
       {currentTab === "security" && <ChangePasswordForm />}
 
       {/* ─── Tab 5 : Facturation & Abonnement AlphaPay ──────────────────── */}

@@ -2,12 +2,16 @@ from django.db import transaction
 from django.db.models import Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
 from apps.core.idempotency import idempotent
+from apps.core.pagination import PageNumberPagination
 from apps.core.permissions import require_permission
-from apps.core.viewsets import TenantViewSet, restrict_to_allowed_warehouses
+from apps.notifications.models import NotificationKind
+from apps.notifications.services import notify
+from apps.core.viewsets import AuditedViewSetMixin, TenantViewSet, restrict_to_allowed_warehouses
 from apps.inventory.counts import (
     cancel_inventory,
     record_counts,
@@ -36,7 +40,7 @@ from apps.inventory.serializers import (
 from apps.inventory.transfers import complete_transfer
 
 
-class WarehouseViewSet(TenantViewSet):
+class WarehouseViewSet(AuditedViewSetMixin, TenantViewSet):
     serializer_class = WarehouseSerializer
     queryset = Warehouse.objects.all()
     search_fields = ["name", "code", "city"]
@@ -54,10 +58,6 @@ class WarehouseViewSet(TenantViewSet):
         if ids and role not in {"OWNER", "ADMINISTRATOR"}:
             qs = qs.filter(id__in=ids)
         return qs
-
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=["is_active", "updated_at"])
 
 
 class StockViewSet(TenantViewSet):
@@ -120,12 +120,26 @@ class TransferViewSet(TenantViewSet):
 
     @action(detail=True, methods=["post"])
     @idempotent
+    @transaction.atomic
     def complete(self, request, pk=None):
         transfer = complete_transfer(self.get_object(), request.user, request.membership)
         write_audit(request, action=AuditAction.VALIDATE, entity=transfer)
+        notify(
+            request.organization,
+            permission="stock.view",
+            kind=NotificationKind.TRANSFER_COMPLETED,
+            message=(
+                f"Le transfert {transfer.reference} ({transfer.source.name} → "
+                f"{transfer.destination.name}) a été validé."
+            ),
+            link="/stock/transferts",
+            warehouse=transfer.destination,
+            exclude_user=request.user,
+        )
         return Response(self.get_serializer(transfer).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
         with transaction.atomic():
             transfer = Transfer.objects.select_for_update().get(pk=self.get_object().pk)
@@ -179,6 +193,7 @@ class InventoryCountViewSet(TenantViewSet):
         return Response(self.get_serializer(self.get_queryset().get(pk=inventory.pk)).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def start(self, request, pk=None):
         return self._respond(start_counting(self.get_object(), request.membership))
 
@@ -215,21 +230,35 @@ class InventoryCountViewSet(TenantViewSet):
         return self.get_paginated_response(InventoryLineSerializer(page, many=True, context=context).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def review(self, request, pk=None):
-        return self._respond(submit_for_review(self.get_object(), request.membership))
+        inventory = submit_for_review(self.get_object(), request.membership)
+        notify(
+            request.organization,
+            permission="inventory.validate",
+            kind=NotificationKind.INVENTORY_REVIEW,
+            message=f"L'inventaire {inventory.reference} ({inventory.warehouse.name}) attend votre validation.",
+            link=f"/inventaires/{inventory.id}",
+            warehouse=inventory.warehouse,
+            exclude_user=request.user,
+        )
+        return self._respond(inventory)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def reopen(self, request, pk=None):
         return self._respond(reopen_counting(self.get_object(), request.membership))
 
     @action(detail=True, methods=["post"])
     @idempotent
+    @transaction.atomic
     def validate(self, request, pk=None):
         inventory = validate_inventory(self.get_object(), request.user, request.membership)
         write_audit(request, action=AuditAction.VALIDATE, entity=inventory)
         return self._respond(inventory)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
         inventory = cancel_inventory(self.get_object(), request.membership)
         write_audit(request, action=AuditAction.CANCEL, entity=inventory)
@@ -243,3 +272,49 @@ class InventoryCountViewSet(TenantViewSet):
                 organization=inventory.organization, warehouse=inventory.warehouse
             ).values_list("product_id", "quantity")
         )
+
+
+class StockAlertView(APIView):
+    """Alertes de stock (§36), calculées en direct sur les dépôts autorisés.
+
+    - rupture : quantité 0 ;
+    - stock faible : 0 < quantité ≤ seuil minimum du produit.
+    """
+
+    permission_classes = [require_permission("stock.view")]
+
+    def get(self, request):
+        positions = restrict_to_allowed_warehouses(
+            StockPosition.objects.filter(organization=request.organization, product__is_active=True),
+            request.membership,
+        ).select_related("product", "warehouse")
+        if request.query_params.get("warehouse"):
+            positions = positions.filter(warehouse_id=request.query_params["warehouse"])
+        out = Q(quantity=0)
+        low = Q(quantity__gt=0, product__minimum_stock__gt=0, quantity__lte=F("product__minimum_stock"))
+        counts = {"out": positions.filter(out).count(), "low": positions.filter(low).count()}
+        kind = request.query_params.get("kind")
+        alerts = positions.filter(out if kind == "out" else low if kind == "low" else out | low)
+        # Ruptures d'abord, puis les stocks les plus entamés par rapport au seuil.
+        alerts = alerts.order_by("quantity", "product__name")
+
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(alerts, request, view=self)
+        results = [
+            {
+                "id": str(p.id),
+                "kind": "out" if p.quantity == 0 else "low",
+                "product": str(p.product_id),
+                "product_name": p.product.name,
+                "product_sku": p.product.sku,
+                "unit": p.product.unit,
+                "warehouse": str(p.warehouse_id),
+                "warehouse_name": p.warehouse.name,
+                "quantity": p.quantity,
+                "minimum_stock": p.product.minimum_stock,
+            }
+            for p in page
+        ]
+        response = paginator.get_paginated_response(results)
+        response.data["summary"] = counts
+        return response

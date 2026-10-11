@@ -602,3 +602,44 @@ export interface InventoryLine {
 export type CountEntry =
   | { product: string; counted_quantity: number | null }
   | { code: string; add: number };
+
+// ─── Alertes, notifications, audit ──────────────────────────────────────────
+export interface StockAlert {
+  id: string;
+  kind: "out" | "low";
+  product: string;
+  product_name: string;
+  product_sku: string;
+  unit: string;
+  warehouse: string;
+  warehouse_name: string;
+  quantity: number;
+  minimum_stock: number;
+}
+
+export interface StockAlertPage extends PaginatedResponse<StockAlert> {
+  summary: { out: number; low: number };
+}
+
+export interface AppNotification {
+  id: string;
+  kind: "STOCK_LOW" | "STOCK_OUT" | "PURCHASE_RECEIVED" | "TRANSFER_COMPLETED" | "INVENTORY_REVIEW";
+  message: string;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  created_at: string;
+  user_name: string;
+  action: string;
+  action_label: string;
+  entity_type: string;
+  entity_id: string;
+  entity_label: string;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
+  ip_address: string | null;
+}

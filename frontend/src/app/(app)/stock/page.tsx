@@ -104,6 +104,14 @@ export default function StockPage() {
           </button>
 
           <Link
+            href="/stock/alertes"
+            className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-xs transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Alertes
+          </Link>
+
+          <Link
             href="/stock/transferts"
             className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-xs transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
           >

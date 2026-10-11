@@ -1,10 +1,12 @@
 from datetime import timedelta
 
+from django.db import transaction
 from django.db.models import F, Sum
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.audit.services import AuditAction, diff, snapshot, write_audit
 from apps.core.permissions import require_permission
 from apps.core.viewsets import restrict_to_allowed_warehouses
 from apps.inventory.models import StockPosition
@@ -28,7 +30,15 @@ class OrganizationMeView(APIView):
             request.organization, data=request.data, partial=True
         )
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        fields = list(serializer.validated_data)
+        before = snapshot(request.organization, fields)
+        with transaction.atomic():
+            serializer.save()
+            old, new = diff(before, snapshot(serializer.instance, fields))
+            if new:
+                write_audit(
+                    request, action=AuditAction.UPDATE, entity=serializer.instance, old_values=old, extra=new
+                )
         return Response(serializer.data)
 
 

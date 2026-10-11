@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count, Sum
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -5,6 +6,8 @@ from rest_framework.response import Response
 from apps.audit.services import AuditAction, write_audit
 from apps.core.idempotency import idempotent
 from apps.core.permissions import require_permission
+from apps.notifications.models import NotificationKind
+from apps.notifications.services import notify
 from apps.core.viewsets import TenantViewSet, restrict_to_allowed_warehouses
 from apps.purchases.models import Purchase, PurchaseStatus
 from apps.purchases.serializers import PurchaseSerializer, ReceiveSerializer
@@ -59,6 +62,7 @@ class PurchaseViewSet(TenantViewSet):
         )
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def confirm(self, request, pk=None):
         purchase = confirm_purchase(self.get_object())
         write_audit(request, action=AuditAction.VALIDATE, entity=purchase)
@@ -66,6 +70,7 @@ class PurchaseViewSet(TenantViewSet):
 
     @action(detail=True, methods=["post"])
     @idempotent
+    @transaction.atomic
     def receive(self, request, pk=None):
         serializer = ReceiveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -73,10 +78,24 @@ class PurchaseViewSet(TenantViewSet):
             self.get_object(), serializer.validated_data["lines"], request.user, request.membership
         )
         write_audit(request, action=AuditAction.RECEIVE, entity=receipt.purchase)
+        purchase = receipt.purchase
+        notify(
+            request.organization,
+            permission="purchases.view",
+            kind=NotificationKind.PURCHASE_RECEIVED,
+            message=(
+                f"Réception {receipt.reference} de l'achat {purchase.reference} "
+                f"({purchase.supplier.name}) enregistrée à {purchase.warehouse.name}."
+            ),
+            link="/achats",
+            warehouse=purchase.warehouse,
+            exclude_user=request.user,
+        )
         purchase = Purchase.objects.get(pk=receipt.purchase_id)
         return Response(self.get_serializer(purchase).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
         purchase = cancel_purchase(self.get_object())
         write_audit(request, action=AuditAction.CANCEL, entity=purchase)

@@ -49,8 +49,15 @@ def apply_stock_delta(
             available=position.quantity,
             warehouse_name=warehouse.name,
         )
+    old_qty = position.quantity
     position.quantity = new_qty
     position.save(update_fields=["quantity", "updated_at"])
+    if delta < 0:
+        from apps.notifications.services import notify_stock_threshold
+
+        position.product = product
+        position.warehouse = warehouse
+        notify_stock_threshold(position, old_qty)
     return StockMovement.objects.create(
         organization=organization,
         product=product,
