@@ -112,3 +112,80 @@ class TransferItem(UUIDModel):
     transfer = models.ForeignKey(Transfer, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("products.Product", on_delete=models.PROTECT)
     quantity = models.PositiveIntegerField()
+
+
+class InventoryStatus(models.TextChoices):
+    DRAFT = "DRAFT"
+    COUNTING = "COUNTING"
+    REVIEW = "REVIEW"
+    VALIDATED = "VALIDATED"
+    CANCELLED = "CANCELLED"
+
+
+OPEN_INVENTORY_STATUSES = [InventoryStatus.DRAFT, InventoryStatus.COUNTING, InventoryStatus.REVIEW]
+
+
+class InventoryCount(OrganizationOwnedModel):
+    """Inventaire d'un dépôt (§34). Aucun effet stock avant VALIDATED."""
+
+    reference = models.CharField(max_length=32)
+    warehouse = models.ForeignKey(
+        Warehouse, on_delete=models.PROTECT, related_name="inventory_counts"
+    )
+    category = models.ForeignKey(
+        "products.Category",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Inventaire partiel limité à une catégorie (vide = tout le catalogue actif).",
+    )
+    status = models.CharField(
+        max_length=20, choices=InventoryStatus.choices, default=InventoryStatus.DRAFT
+    )
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    validated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    validated_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "reference"], name="uniq_inventory_ref"
+            ),
+            # §34 : un seul inventaire non terminal par dépôt à la fois.
+            models.UniqueConstraint(
+                fields=["warehouse"],
+                condition=models.Q(status__in=["DRAFT", "COUNTING", "REVIEW"]),
+                name="uniq_open_inventory_per_warehouse",
+            ),
+        ]
+
+
+class InventoryLine(UUIDModel):
+    inventory = models.ForeignKey(InventoryCount, on_delete=models.CASCADE, related_name="lines")
+    product = models.ForeignKey("products.Product", on_delete=models.PROTECT, related_name="+")
+    # Stock théorique figé au démarrage du comptage.
+    expected_quantity = models.IntegerField()
+    counted_quantity = models.PositiveIntegerField(null=True, blank=True)
+    counted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    counted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["inventory", "product"], name="uniq_inventory_product")
+        ]
+
+    @property
+    def difference(self):
+        if self.counted_quantity is None:
+            return None
+        return self.counted_quantity - self.expected_quantity

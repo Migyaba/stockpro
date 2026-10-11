@@ -1,11 +1,19 @@
+from django.db import transaction
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from django.db import transaction
-
 from apps.core.exceptions import WarehouseForbidden
 from apps.core.serializers import TenantScopedSerializerMixin
-from apps.inventory.models import StockMovement, StockPosition, Transfer, TransferItem, Warehouse
+from apps.inventory.models import (
+    OPEN_INVENTORY_STATUSES,
+    InventoryCount,
+    InventoryLine,
+    StockMovement,
+    StockPosition,
+    Transfer,
+    TransferItem,
+    Warehouse,
+)
 from apps.products.serializers import ProductSerializer
 
 
@@ -155,3 +163,133 @@ class TransferSerializer(TenantScopedSerializerMixin, serializers.ModelSerialize
         for item in items:
             TransferItem.objects.create(transfer=transfer, **item)
         return transfer
+
+
+class InventoryCountSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
+    warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
+    category_name = serializers.CharField(source="category.name", read_only=True, default=None)
+    created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default=None)
+    validated_by_name = serializers.CharField(source="validated_by.full_name", read_only=True, default=None)
+    stats = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InventoryCount
+        fields = [
+            "id",
+            "reference",
+            "warehouse",
+            "warehouse_name",
+            "category",
+            "category_name",
+            "status",
+            "notes",
+            "stats",
+            "created_by_name",
+            "started_at",
+            "validated_by_name",
+            "validated_at",
+            "created_at",
+        ]
+        read_only_fields = ["id", "reference", "status", "started_at", "validated_at", "created_at"]
+
+    @extend_schema_field(serializers.DictField())
+    def get_stats(self, obj):
+        # Annoté par le viewset (sinon calculé : création, actions).
+        lines = getattr(obj, "lines_total", None)
+        if lines is None:
+            qs = obj.lines.all()
+            lines = qs.count()
+            counted = qs.filter(counted_quantity__isnull=False).count()
+            differences = sum(1 for line in qs.filter(counted_quantity__isnull=False) if line.difference)
+        else:
+            counted, differences = obj.lines_counted, obj.lines_with_difference
+        stats = {"lines": lines, "counted": counted, "uncounted": lines - counted}
+        membership = getattr(self.context.get("request"), "membership", None)
+        # Comptage à l'aveugle : les écarts ne sont visibles que de ceux qui valident.
+        if membership and membership.has_perm("inventory.validate"):
+            stats["differences"] = differences
+        return stats
+
+    def validate_warehouse(self, warehouse):
+        request = self.context["request"]
+        if not request.membership.can_access_warehouse(warehouse):
+            raise WarehouseForbidden()
+        open_inventory = InventoryCount.objects.filter(
+            warehouse=warehouse, status__in=OPEN_INVENTORY_STATUSES
+        ).first()
+        if open_inventory:
+            raise serializers.ValidationError(
+                f"L'inventaire {open_inventory.reference} est déjà en cours sur ce dépôt."
+            )
+        return warehouse
+
+    def create(self, validated):
+        from apps.organizations.references import next_reference
+
+        validated.pop("organization", None)
+        request = self.context["request"]
+        return InventoryCount.objects.create(
+            organization=request.organization,
+            reference=next_reference(request.organization, "INVENTORY"),
+            created_by=request.user,
+            **validated,
+        )
+
+
+class InventoryLineSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    product_sku = serializers.CharField(source="product.sku", read_only=True)
+    product_barcode = serializers.CharField(source="product.barcode", read_only=True)
+    unit = serializers.CharField(source="product.unit", read_only=True)
+    counted_by_name = serializers.CharField(source="counted_by.full_name", read_only=True, default=None)
+    difference = serializers.IntegerField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = InventoryLine
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "product_sku",
+            "product_barcode",
+            "unit",
+            "expected_quantity",
+            "counted_quantity",
+            "difference",
+            "counted_by_name",
+            "counted_at",
+        ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        membership = getattr(self.context.get("request"), "membership", None)
+        if not (membership and membership.has_perm("inventory.validate")):
+            # Comptage à l'aveugle : le compteur ne voit pas le stock attendu.
+            data.pop("expected_quantity", None)
+            data.pop("difference", None)
+        else:
+            current = self.context.get("current_stock", {}).get(instance.product_id)
+            if current is not None:
+                # Stock modifié depuis le démarrage (vente, réception…) : à surveiller en revue.
+                data["stock_changed"] = current != instance.expected_quantity
+        return data
+
+
+class CountEntrySerializer(serializers.Serializer):
+    """Un comptage : produit ou code (SKU / code-barres), quantité absolue ou incrément."""
+
+    product = serializers.UUIDField(required=False)
+    code = serializers.CharField(required=False, max_length=64)
+    counted_quantity = serializers.IntegerField(required=False, allow_null=True, min_value=0)
+    add = serializers.IntegerField(required=False, min_value=1, max_value=100_000)
+
+    def validate(self, attrs):
+        if bool(attrs.get("product")) == bool(attrs.get("code")):
+            raise serializers.ValidationError("Indiquez soit le produit, soit son code.")
+        if ("counted_quantity" in attrs) == ("add" in attrs):
+            raise serializers.ValidationError("Indiquez soit la quantité comptée, soit un incrément.")
+        return attrs
+
+
+class RecordCountsSerializer(serializers.Serializer):
+    lines = CountEntrySerializer(many=True, allow_empty=False, max_length=1000)

@@ -6,7 +6,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const PUBLIC_PATHS = ["/login", "/register"];
 
 // Routes that require authentication but skip the membership bootstrap check
-const AUTH_PATHS_REGEX = /^\/(dashboard|produits|ventes|achats|stock|contacts|rapports|parametres)/;
+const AUTH_PATHS_REGEX = /^\/(dashboard|produits|ventes|achats|stock|contacts|inventaires|rapports|parametres)/;
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

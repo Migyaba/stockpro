@@ -32,6 +32,7 @@ class TaggedAutoSchema(AutoSchema):
         ("/api/stock/", "Stock"),
         ("/api/movements/", "Stock"),
         ("/api/transfers/", "Stock"),
+        ("/api/inventories/", "Stock"),
         ("/api/customers/", "Clients"),
         ("/api/suppliers/", "Fournisseurs"),
         ("/api/purchases/", "Achats"),

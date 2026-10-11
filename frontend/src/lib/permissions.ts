@@ -8,6 +8,7 @@ export const ROUTE_PERMISSIONS: Record<string, string | null> = {
   "/stock": "stock.view",
   "/achats": "purchases.view",
   "/contacts": "sales.view",
+  "/inventaires": "inventory.view",
   "/rapports": "reports.view",
   // Accessible à tous : l'onglet « Sécurité » (mot de passe) concerne chaque membre.
   "/parametres": null,

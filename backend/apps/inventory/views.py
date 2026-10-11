@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -8,8 +8,26 @@ from apps.core.exceptions import InvalidStateTransition
 from apps.core.idempotency import idempotent
 from apps.core.permissions import require_permission
 from apps.core.viewsets import TenantViewSet, restrict_to_allowed_warehouses
-from apps.inventory.models import StockMovement, StockPosition, Transfer, TransferStatus, Warehouse
+from apps.inventory.counts import (
+    cancel_inventory,
+    record_counts,
+    reopen_counting,
+    start_counting,
+    submit_for_review,
+    validate_inventory,
+)
+from apps.inventory.models import (
+    InventoryCount,
+    StockMovement,
+    StockPosition,
+    Transfer,
+    TransferStatus,
+    Warehouse,
+)
 from apps.inventory.serializers import (
+    InventoryCountSerializer,
+    InventoryLineSerializer,
+    RecordCountsSerializer,
     StockMovementSerializer,
     StockPositionSerializer,
     TransferSerializer,
@@ -117,3 +135,111 @@ class TransferViewSet(TenantViewSet):
             transfer.save(update_fields=["status", "updated_at"])
         write_audit(request, action=AuditAction.CANCEL, entity=transfer)
         return Response(self.get_serializer(transfer).data)
+
+
+class InventoryCountViewSet(TenantViewSet):
+    serializer_class = InventoryCountSerializer
+    queryset = InventoryCount.objects.select_related(
+        "warehouse", "category", "created_by", "validated_by"
+    ).annotate(
+        lines_total=Count("lines"),
+        lines_counted=Count("lines", filter=Q(lines__counted_quantity__isnull=False)),
+        lines_with_difference=Count(
+            "lines",
+            filter=Q(lines__counted_quantity__isnull=False)
+            & ~Q(lines__counted_quantity=F("lines__expected_quantity")),
+        ),
+    )
+    filterset_fields = ["status", "warehouse"]
+    # Un inventaire ne se modifie ni ne se supprime : il évolue par ses actions.
+    http_method_names = ["get", "post", "head", "options"]
+
+    PERMISSIONS = {
+        "list": "inventory.view",
+        "retrieve": "inventory.view",
+        "create": "inventory.create",
+        "start": "inventory.create",
+        "cancel": "inventory.create",
+        "lines": "inventory.count",
+        "review": "inventory.count",
+        "reopen": "inventory.count",
+        "validate": "inventory.validate",
+    }
+
+    def get_permissions(self):
+        code = self.PERMISSIONS.get(self.action, "inventory.view")
+        if self.action == "lines" and self.request.method == "GET":
+            code = "inventory.view"
+        return [require_permission(code)()]
+
+    def get_queryset(self):
+        return restrict_to_allowed_warehouses(super().get_queryset(), self.request.membership)
+
+    def _respond(self, inventory):
+        return Response(self.get_serializer(self.get_queryset().get(pk=inventory.pk)).data)
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        return self._respond(start_counting(self.get_object(), request.membership))
+
+    @action(detail=True, methods=["get", "post"])
+    def lines(self, request, pk=None):
+        inventory = self.get_object()
+        context = {**self.get_serializer_context(), "current_stock": self._current_stock(inventory)}
+        if request.method == "POST":
+            payload = RecordCountsSerializer(data=request.data)
+            payload.is_valid(raise_exception=True)
+            updated = record_counts(
+                inventory, payload.validated_data["lines"], request.user, request.membership
+            )
+            return Response(InventoryLineSerializer(updated, many=True, context=context).data)
+
+        lines = inventory.lines.select_related("product", "counted_by").order_by("product__name")
+        search = request.query_params.get("search")
+        if search:
+            lines = lines.filter(
+                Q(product__name__icontains=search)
+                | Q(product__sku__icontains=search)
+                | Q(product__barcode__icontains=search)
+            )
+        state = request.query_params.get("state")
+        if state == "counted":
+            lines = lines.filter(counted_quantity__isnull=False)
+        elif state == "uncounted":
+            lines = lines.filter(counted_quantity__isnull=True)
+        elif state == "difference" and request.membership.has_perm("inventory.validate"):
+            lines = lines.filter(counted_quantity__isnull=False).exclude(
+                counted_quantity=F("expected_quantity")
+            )
+        page = self.paginate_queryset(lines)
+        return self.get_paginated_response(InventoryLineSerializer(page, many=True, context=context).data)
+
+    @action(detail=True, methods=["post"])
+    def review(self, request, pk=None):
+        return self._respond(submit_for_review(self.get_object(), request.membership))
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        return self._respond(reopen_counting(self.get_object(), request.membership))
+
+    @action(detail=True, methods=["post"])
+    @idempotent
+    def validate(self, request, pk=None):
+        inventory = validate_inventory(self.get_object(), request.user, request.membership)
+        write_audit(request, action=AuditAction.VALIDATE, entity=inventory)
+        return self._respond(inventory)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request, pk=None):
+        inventory = cancel_inventory(self.get_object(), request.membership)
+        write_audit(request, action=AuditAction.CANCEL, entity=inventory)
+        return self._respond(inventory)
+
+    def _current_stock(self, inventory):
+        if not self.request.membership.has_perm("inventory.validate"):
+            return {}
+        return dict(
+            StockPosition.objects.filter(
+                organization=inventory.organization, warehouse=inventory.warehouse
+            ).values_list("product_id", "quantity")
+        )

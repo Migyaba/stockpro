@@ -560,4 +560,45 @@ export interface PurchasesReport {
   top_suppliers: { id: string; name: string; total: number; count: number }[];
 }
 
-export type ExportKind = "sales" | "products" | "stock" | "movements" | "purchases";
+export type ExportKind = "sales" | "products" | "stock" | "movements" | "purchases" | "inventory";
+
+// ─── Inventaires ────────────────────────────────────────────────────────────
+export type InventoryStatus = "DRAFT" | "COUNTING" | "REVIEW" | "VALIDATED" | "CANCELLED";
+
+export interface InventoryCount {
+  id: string;
+  reference: string;
+  warehouse: string;
+  warehouse_name: string;
+  category: string | null;
+  category_name: string | null;
+  status: InventoryStatus;
+  notes: string;
+  /** `differences` absent pour les compteurs (comptage à l'aveugle). */
+  stats: { lines: number; counted: number; uncounted: number; differences?: number };
+  created_by_name: string | null;
+  started_at: string | null;
+  validated_by_name: string | null;
+  validated_at: string | null;
+  created_at: string;
+}
+
+export interface InventoryLine {
+  id: string;
+  product: string;
+  product_name: string;
+  product_sku: string;
+  product_barcode: string;
+  unit: string;
+  counted_quantity: number | null;
+  counted_by_name: string | null;
+  counted_at: string | null;
+  /** Visibles uniquement pour les rôles qui valident. */
+  expected_quantity?: number;
+  difference?: number | null;
+  stock_changed?: boolean;
+}
+
+export type CountEntry =
+  | { product: string; counted_quantity: number | null }
+  | { code: string; add: number };
