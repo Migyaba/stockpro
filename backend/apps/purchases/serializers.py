@@ -1,12 +1,15 @@
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 
+from apps.core.exceptions import WarehouseForbidden
+from apps.core.serializers import TenantScopedSerializerMixin
 from apps.organizations.references import next_reference
 from apps.purchases.models import Purchase, PurchaseItem
 from apps.purchases.services import recompute_purchase_totals
 
 
-class PurchaseItemSerializer(serializers.ModelSerializer):
+class PurchaseItemSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
@@ -22,11 +25,16 @@ class PurchaseItemSerializer(serializers.ModelSerializer):
             "tax",
             "total",
         ]
-        read_only_fields = ["id", "quantity_received", "total"]
+        read_only_fields = ["id", "quantity_received", "tax", "total"]
+        extra_kwargs = {
+            "quantity": {"min_value": 1},
+            "unit_price": {"min_value": 0},
+            "discount": {"min_value": 0},
+        }
 
 
-class PurchaseSerializer(serializers.ModelSerializer):
-    items = PurchaseItemSerializer(many=True)
+class PurchaseSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
+    items = PurchaseItemSerializer(many=True, allow_empty=False)
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
 
@@ -61,6 +69,12 @@ class PurchaseSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {"purchase_date": {"required": False}}
 
+    def validate_warehouse(self, warehouse):
+        if not self.context["request"].membership.can_access_warehouse(warehouse):
+            raise WarehouseForbidden()
+        return warehouse
+
+    @transaction.atomic
     def create(self, validated):
         items = validated.pop("items")
         validated.pop("organization", None)
@@ -79,5 +93,10 @@ class PurchaseSerializer(serializers.ModelSerializer):
         return purchase
 
 
+class ReceiveLineSerializer(serializers.Serializer):
+    purchase_item_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
 class ReceiveSerializer(serializers.Serializer):
-    lines = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+    lines = ReceiveLineSerializer(many=True, allow_empty=False)

@@ -2,8 +2,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.audit.services import AuditAction, write_audit
+from apps.core.idempotency import idempotent
 from apps.core.permissions import require_permission
-from apps.core.viewsets import TenantViewSet
+from apps.core.viewsets import TenantViewSet, restrict_to_allowed_warehouses
 from apps.purchases.models import Purchase
 from apps.purchases.serializers import PurchaseSerializer, ReceiveSerializer
 from apps.purchases.services import cancel_purchase, confirm_purchase, receive_purchase
@@ -16,6 +17,8 @@ class PurchaseViewSet(TenantViewSet):
     )
     filterset_fields = ["status", "warehouse", "supplier"]
     search_fields = ["reference"]
+    # Un achat ne se modifie ni ne se supprime : il évolue via confirm/receive/cancel.
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_permissions(self):
         mapping = {
@@ -28,6 +31,9 @@ class PurchaseViewSet(TenantViewSet):
         }
         return [require_permission(mapping.get(self.action, "purchases.view"))()]
 
+    def get_queryset(self):
+        return restrict_to_allowed_warehouses(super().get_queryset(), self.request.membership)
+
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
         purchase = confirm_purchase(self.get_object())
@@ -35,6 +41,7 @@ class PurchaseViewSet(TenantViewSet):
         return Response(self.get_serializer(purchase).data)
 
     @action(detail=True, methods=["post"])
+    @idempotent
     def receive(self, request, pk=None):
         serializer = ReceiveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

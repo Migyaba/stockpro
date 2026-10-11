@@ -2,6 +2,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.audit.services import AuditAction, write_audit
+from apps.core.idempotency import idempotent
 from apps.core.permissions import require_permission
 from apps.core.viewsets import TenantViewSet
 from apps.sales.models import Sale
@@ -14,6 +15,8 @@ class SaleViewSet(TenantViewSet):
     queryset = Sale.objects.select_related("customer", "warehouse").prefetch_related("items__product")
     filterset_fields = ["status", "warehouse", "customer"]
     search_fields = ["reference"]
+    # Une vente ne se modifie ni ne se supprime : le stock ne bouge que via complete/cancel.
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_permissions(self):
         mapping = {
@@ -33,6 +36,7 @@ class SaleViewSet(TenantViewSet):
         return qs
 
     @action(detail=True, methods=["post"])
+    @idempotent
     def complete(self, request, pk=None):
         sale = complete_sale(self.get_object(), request.user, request.membership)
         write_audit(request, action=AuditAction.VALIDATE, entity=sale)

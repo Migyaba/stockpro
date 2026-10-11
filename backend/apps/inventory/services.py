@@ -1,8 +1,24 @@
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from apps.core.exceptions import InsufficientStock, InvalidStateTransition
 from apps.inventory.models import MovementType, StockMovement, StockPosition, Warehouse
 from apps.products.models import Product
+
+
+def _lock_position(organization, product, warehouse):
+    """SELECT … FOR UPDATE ; crée la position à 0 si absente puis la verrouille (§67.1)."""
+    lookup = {"organization": organization, "product": product, "warehouse": warehouse}
+    try:
+        return StockPosition.objects.select_for_update().get(**lookup)
+    except StockPosition.DoesNotExist:
+        pass
+    try:
+        with transaction.atomic():
+            StockPosition.objects.create(quantity=0, **lookup)
+    except IntegrityError:
+        # Créée en parallèle par une autre transaction : on verrouille l'existante.
+        pass
+    return StockPosition.objects.select_for_update().get(**lookup)
 
 
 @transaction.atomic
@@ -24,12 +40,7 @@ def apply_stock_delta(
     if product.organization_id != organization.id:
         raise InvalidStateTransition("Le produit n'appartient pas à cette organisation.")
 
-    position, _ = StockPosition.objects.select_for_update().get_or_create(
-        organization=organization,
-        product=product,
-        warehouse=warehouse,
-        defaults={"quantity": 0},
-    )
+    position = _lock_position(organization, product, warehouse)
     new_qty = position.quantity + delta
     if new_qty < 0:
         raise InsufficientStock(

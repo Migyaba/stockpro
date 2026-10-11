@@ -1,13 +1,16 @@
+from django.db import transaction
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from apps.core.exceptions import WarehouseForbidden
+from apps.core.serializers import TenantScopedSerializerMixin
 from apps.organizations.references import next_reference
 from apps.sales.models import Sale, SaleItem
 from apps.sales.services import recompute_sale_totals
 
 
-class SaleItemSerializer(serializers.ModelSerializer):
+class SaleItemSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
@@ -22,12 +25,22 @@ class SaleItemSerializer(serializers.ModelSerializer):
             "tax",
             "total",
         ]
-        read_only_fields = ["id", "total"]
-        extra_kwargs = {"unit_price": {"required": False}}
+        # La TVA est calculée par le serveur à partir des paramètres de l'organisation.
+        read_only_fields = ["id", "tax", "total"]
+        extra_kwargs = {
+            "quantity": {"min_value": 1},
+            "unit_price": {"required": False, "min_value": 0},
+            "discount": {"min_value": 0},
+        }
+
+    def validate_product(self, product):
+        if not product.is_active:
+            raise serializers.ValidationError(f"Le produit {product.name} est désactivé.")
+        return product
 
 
-class SaleSerializer(serializers.ModelSerializer):
-    items = SaleItemSerializer(many=True)
+class SaleSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
+    items = SaleItemSerializer(many=True, allow_empty=False)
     customer_name = serializers.SerializerMethodField()
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
 
@@ -67,6 +80,12 @@ class SaleSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {"sale_date": {"required": False}}
 
+    def validate_warehouse(self, warehouse):
+        if not self.context["request"].membership.can_access_warehouse(warehouse):
+            raise WarehouseForbidden()
+        return warehouse
+
+    @transaction.atomic
     def create(self, validated):
         items = validated.pop("items")
         validated.pop("organization", None)

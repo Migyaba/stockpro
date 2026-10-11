@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 
 
@@ -27,3 +28,22 @@ class OrganizationOwnedModel(TimeStampedModel):
 
     class Meta:
         abstract = True
+
+
+class IdempotencyRecord(TimeStampedModel):
+    """Réponse mémorisée d'une validation rejouée avec le même Idempotency-Key (§64.2)."""
+
+    organization = models.ForeignKey(
+        "organizations.Organization", on_delete=models.CASCADE, related_name="+"
+    )
+    key = models.CharField(max_length=128)
+    fingerprint = models.CharField(max_length=64)
+    response_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    response_body = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "key"], name="uniq_idempotency_key_per_org"
+            )
+        ]

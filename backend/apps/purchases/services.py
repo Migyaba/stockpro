@@ -2,6 +2,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.core.exceptions import InvalidStateTransition, WarehouseForbidden
+from apps.core.pricing import compute_line_amounts
 from apps.inventory.models import MovementType
 from apps.inventory.services import apply_stock_delta
 from apps.organizations.references import next_reference
@@ -19,10 +20,17 @@ def recompute_purchase_totals(purchase: Purchase):
     tax = 0
     total = 0
     for item in purchase.items.all():
-        line = item.quantity * item.unit_price - item.discount
-        item.total = line + item.tax
-        item.save(update_fields=["total"])
-        subtotal += item.quantity * item.unit_price
+        gross = item.quantity * item.unit_price
+        if item.discount > gross:
+            raise InvalidStateTransition("La remise d'une ligne ne peut pas dépasser son montant.")
+        item.tax, item.total = compute_line_amounts(
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            discount=item.discount,
+            organization=purchase.organization,
+        )
+        item.save(update_fields=["tax", "total"])
+        subtotal += gross
         discount += item.discount
         tax += item.tax
         total += item.total
@@ -33,8 +41,13 @@ def recompute_purchase_totals(purchase: Purchase):
     purchase.save(update_fields=["subtotal", "discount", "tax", "total", "updated_at"])
 
 
+def _lock_purchase(purchase: Purchase) -> Purchase:
+    return Purchase.objects.select_for_update().get(pk=purchase.pk)
+
+
 @transaction.atomic
 def confirm_purchase(purchase: Purchase):
+    purchase = _lock_purchase(purchase)
     if purchase.status != PurchaseStatus.DRAFT:
         raise InvalidStateTransition("Seul un achat brouillon peut être confirmé.")
     if not purchase.items.exists():
@@ -46,6 +59,7 @@ def confirm_purchase(purchase: Purchase):
 
 @transaction.atomic
 def cancel_purchase(purchase: Purchase):
+    purchase = _lock_purchase(purchase)
     if purchase.status not in {PurchaseStatus.DRAFT, PurchaseStatus.CONFIRMED}:
         raise InvalidStateTransition("Cet achat ne peut plus être annulé.")
     if purchase.items.filter(quantity_received__gt=0).exists():
@@ -57,6 +71,8 @@ def cancel_purchase(purchase: Purchase):
 
 @transaction.atomic
 def receive_purchase(purchase: Purchase, lines: list[dict], user, membership):
+    # Verrou sur l'achat : deux réceptions simultanées ne peuvent pas dépasser la quantité commandée.
+    purchase = _lock_purchase(purchase)
     if purchase.status not in {
         PurchaseStatus.CONFIRMED,
         PurchaseStatus.PARTIALLY_RECEIVED,
@@ -82,9 +98,7 @@ def receive_purchase(purchase: Purchase, lines: list[dict], user, membership):
         item = items_by_id.get(str(line["purchase_item_id"]))
         if item is None:
             raise InvalidStateTransition("Ligne d'achat introuvable.")
-        qty = int(line["quantity"])
-        if qty <= 0:
-            raise InvalidStateTransition("La quantité reçue doit être positive.")
+        qty = line["quantity"]
         remaining = item.quantity - item.quantity_received
         if qty > remaining:
             raise InvalidStateTransition(

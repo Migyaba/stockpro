@@ -1,5 +1,17 @@
-from rest_framework.exceptions import APIException
+import logging
+
+from django.core.exceptions import ObjectDoesNotExist
+from django.db import IntegrityError
+from rest_framework.exceptions import APIException, NotFound
 from rest_framework.views import exception_handler
+
+logger = logging.getLogger(__name__)
+
+
+class Conflict(APIException):
+    status_code = 409
+    default_detail = "Cette opération entre en conflit avec des données existantes."
+    default_code = "CONFLICT"
 
 
 class BusinessError(APIException):
@@ -57,31 +69,37 @@ class IdempotencyConflict(BusinessError):
         )
 
 
+class IdempotencyInProgress(BusinessError):
+    status_code = 409
+
+    def __init__(self):
+        super().__init__(
+            detail="Une requête avec cette clé d'idempotence est déjà en cours de traitement.",
+            code="IDEMPOTENCY_IN_PROGRESS",
+        )
+
+
 def api_exception_handler(exc, context):
+    if isinstance(exc, IntegrityError):
+        # Contrainte d'unicité/intégrité non anticipée par la validation : 409 plutôt qu'une 500.
+        logger.warning("IntegrityError convertie en 409 : %s", exc)
+        exc = Conflict()
+    elif isinstance(exc, ObjectDoesNotExist):
+        exc = NotFound()
+
     response = exception_handler(exc, context)
     if response is None:
         return response
 
+    code = getattr(exc, "default_code", None) or "error"
+    if isinstance(exc, BusinessError):
+        codes = exc.get_codes()
+        if isinstance(codes, str):
+            code = codes
+    payload = {"error": {"code": code, "message": _message(response.data)}}
     extra = getattr(exc, "extra", None)
-    payload = {
-        "error": {
-            "code": getattr(exc, "default_code", None)
-            or getattr(getattr(exc, "detail", None), "code", None)
-            or "error",
-            "message": _message(response.data),
-        }
-    }
     if extra:
         payload["error"]["details"] = extra
-    if isinstance(exc, BusinessError):
-        payload["error"]["code"] = exc.default_code if exc.default_code != "business_error" else (
-            getattr(exc, "get_codes", lambda: "business_error")()
-            if not isinstance(getattr(exc, "detail", None), str)
-            else (exc.get_codes() if hasattr(exc, "get_codes") else "business_error")
-        )
-        codes = exc.get_codes() if hasattr(exc, "get_codes") else None
-        if isinstance(codes, str):
-            payload["error"]["code"] = codes
     response.data = payload
     return response
 

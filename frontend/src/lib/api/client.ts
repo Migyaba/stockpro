@@ -78,4 +78,22 @@ apiClient.interceptors.response.use(
   }
 );
 
+// ─── Helpers ──────────────────────────────────────────────────────────────
+// Clé d'idempotence des validations (vente, réception, transfert) : un rejeu
+// réseau avec la même clé ne crée pas de second mouvement de stock.
+export function idempotencyHeaders(): Record<string, string> {
+  const key =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return { "Idempotency-Key": key };
+}
+
+// Le backend renvoie { error: { code, message } } ; on remonte ce message métier.
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  const data = (error as { response?: { data?: { error?: { message?: string } } } })
+    ?.response?.data;
+  return data?.error?.message || fallback;
+}
+
 export default apiClient;

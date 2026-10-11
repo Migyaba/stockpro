@@ -15,6 +15,10 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+class PaymentUnavailable(Exception):
+    """Le paiement en ligne ne peut pas être initié (configuration manquante)."""
+
+
 def get_organization_plan_pricing(organization: Organization) -> dict:
     """
     Calcule dynamiquement les tarifs d'abonnement applicables à cette organisation.
@@ -39,6 +43,21 @@ def get_organization_plan_pricing(organization: Organization) -> dict:
     }
 
 
+def payment_amount_matches(payment: SubscriptionPayment, data: dict) -> bool:
+    """Vérifie, quand AlphaPay les fournit, que montant et devise sont ceux attendus."""
+    amount = data.get("amount", data.get("amount_total"))
+    if amount is not None:
+        try:
+            if int(amount) != payment.amount:
+                return False
+        except (TypeError, ValueError):
+            return False
+    currency = data.get("currency")
+    if currency and str(currency).upper() != payment.currency:
+        return False
+    return True
+
+
 def get_alphapay_client():
     secret_key = getattr(settings, "ALPHAPAY_SECRET_KEY", None)
     if not secret_key:
@@ -55,6 +74,12 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
     """
     Initialise une session de paiement AlphaPay pour un abonnement StockPro.
     """
+    client = get_alphapay_client()
+    if client is None and not settings.DEBUG:
+        # La simulation n'est autorisée qu'en développement.
+        logger.error("Checkout refusé : AlphaPay non configuré en production.")
+        raise PaymentUnavailable("Paiement indisponible : AlphaPay n'est pas configuré.")
+
     plan_upper = plan.upper()
     pricing_map = get_organization_plan_pricing(organization)
     if plan_upper not in pricing_map:
@@ -94,7 +119,6 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
         },
     )
 
-    client = get_alphapay_client()
     if client:
         try:
             checkout_kwargs = {
@@ -132,7 +156,7 @@ def create_subscription_checkout(organization: Organization, user, plan: str, ph
             logger.exception("Erreur lors de l'appel AlphaPay checkout_sessions.create: %s", e)
             raise
 
-    # Si pas de clé AlphaPay configurée (mode simulation / dev)
+    # Sans clé AlphaPay (développement uniquement, cf. garde en début de fonction).
     return {
         "checkout_url": f"{return_url}&mock_checkout=1",
         "reference": ref,
@@ -217,7 +241,10 @@ def verify_subscription_payment(payment: SubscriptionPayment) -> SubscriptionPay
         )
 
         if session_status in ["PAID", "COMPLETED", "SUCCESS"] or payment_status_field in ["PAID", "COMPLETED"]:
-            activate_subscription_from_payment(payment)
+            if payment_amount_matches(payment, session):
+                activate_subscription_from_payment(payment)
+            else:
+                logger.error("Session AlphaPay %s payée avec un montant inattendu.", payment.reference)
         elif session_status in ["EXPIRED", "CANCELLED", "FAILED"]:
             payment.status = PaymentStatus.FAILED if session_status == "FAILED" else PaymentStatus.CANCELLED
             payment.save(update_fields=["status"])

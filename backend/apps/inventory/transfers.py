@@ -9,6 +9,7 @@ from apps.organizations.references import next_reference
 
 @transaction.atomic
 def complete_transfer(transfer: Transfer, user, membership):
+    transfer = Transfer.objects.select_for_update().get(pk=transfer.pk)
     if transfer.status != TransferStatus.DRAFT:
         raise InvalidStateTransition("Seul un transfert brouillon peut être validé.")
     if transfer.source_id == transfer.destination_id:
@@ -18,7 +19,7 @@ def complete_transfer(transfer: Transfer, user, membership):
     ):
         raise WarehouseForbidden()
 
-    items = list(transfer.items.select_related("product"))
+    items = list(transfer.items.select_related("product").order_by("product_id"))
     if not items:
         raise InvalidStateTransition("Le transfert n'a aucune ligne.")
 

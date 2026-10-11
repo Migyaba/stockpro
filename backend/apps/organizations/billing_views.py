@@ -1,4 +1,3 @@
-import json
 import logging
 from django.conf import settings
 from django.core.cache import cache
@@ -8,10 +7,14 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.permissions import require_permission
+
 from .billing import (
+    PaymentUnavailable,
     activate_subscription_from_payment,
     create_subscription_checkout,
     get_organization_plan_pricing,
+    payment_amount_matches,
     verify_subscription_payment,
 )
 from .models import (
@@ -114,13 +117,18 @@ class CheckoutSessionView(APIView):
     """
     Initialise une session de paiement Mobile Money via AlphaPay.
     """
-    permission_classes = [IsAuthenticated]
+    # Abonnement : réservé à l'owner (matrice §16.1).
+    permission_classes = [require_permission("billing.manage")]
 
     def post(self, request):
         org = request.organization
         plan = request.data.get("plan", "monthly").lower()
         phone = request.data.get("phone", "")
         return_url = request.data.get("return_url", "")
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        if return_url and not return_url.startswith(f"{frontend_url}/"):
+            # Pas de redirection post-paiement vers un domaine arbitraire.
+            return_url = ""
 
         mapped_plan = "QUARTERLY" if "quarter" in plan or "trimestre" in plan else "MONTHLY"
 
@@ -133,6 +141,11 @@ class CheckoutSessionView(APIView):
                 return_url=return_url,
             )
             return Response(checkout_data, status=status.HTTP_201_CREATED)
+        except PaymentUnavailable as e:
+            return Response(
+                {"error": {"code": "payment_unavailable", "message": str(e)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as e:
             logger.exception("Échec d'initialisation du checkout AlphaPay: %s", e)
             message = str(e) if isinstance(e, ValueError) else (
@@ -148,7 +161,8 @@ class VerifyPaymentView(APIView):
     """
     Interroge l'API AlphaPay pour vérifier et valider immédiatement un paiement en attente.
     """
-    permission_classes = [IsAuthenticated]
+    # Abonnement : réservé à l'owner (matrice §16.1).
+    permission_classes = [require_permission("billing.manage")]
 
     def post(self, request):
         org = request.organization
@@ -194,27 +208,22 @@ class AlphaPayWebhookView(APIView):
         raw_body = request.body
         webhook_secret = getattr(settings, "ALPHAPAY_WEBHOOK_SECRET", None)
 
-        if not webhook_secret and not settings.DEBUG:
+        # Jamais de webhook non signé, même en DEBUG : il active des abonnements.
+        if not webhook_secret:
             logger.error("Webhook AlphaPay refusé : ALPHAPAY_WEBHOOK_SECRET non configuré.")
             return Response({"error": "Webhook non configuré"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if webhook_secret:
-            try:
-                from alphapay import AlphaPayWebhookSignatureError, verify_signature  # type: ignore
-                event = verify_signature(
-                    payload=raw_body,
-                    signature=request.headers.get("X-Webhook-Signature", ""),
-                    timestamp=request.headers.get("X-Webhook-Timestamp", ""),
-                    secret=webhook_secret,
-                )
-            except Exception as err:
-                logger.warning("Signature webhook AlphaPay invalide : %s", err)
-                return Response({"error": "Signature invalide"}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            try:
-                event = json.loads(raw_body.decode("utf-8"))
-            except Exception:
-                return Response({"error": "JSON invalide"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            from alphapay import verify_signature  # type: ignore
+            event = verify_signature(
+                payload=raw_body,
+                signature=request.headers.get("X-Webhook-Signature", ""),
+                timestamp=request.headers.get("X-Webhook-Timestamp", ""),
+                secret=webhook_secret,
+            )
+        except Exception as err:
+            logger.warning("Signature webhook AlphaPay invalide : %s", err)
+            return Response({"error": "Signature invalide"}, status=status.HTTP_400_BAD_REQUEST)
 
         event_type = event.get("event")
         data = event.get("data", {})
@@ -240,6 +249,14 @@ class AlphaPayWebhookView(APIView):
             if not payment and data.get("slug"):
                 payment = SubscriptionPayment.objects.filter(alphapay_slug=str(data.get("slug"))).first()
 
+            if payment and not payment_amount_matches(payment, data):
+                logger.error(
+                    "Webhook AlphaPay ignoré : montant/devise inattendus pour %s (reçu %s %s).",
+                    payment.reference,
+                    data.get("amount"),
+                    data.get("currency"),
+                )
+                return Response({"status": "ignored", "reason": "amount_mismatch"}, status=status.HTTP_200_OK)
             if payment:
                 activate_subscription_from_payment(payment)
                 return Response({"status": "ok", "message": f"Abonnement pour {payment.reference} activé"}, status=status.HTTP_200_OK)
