@@ -65,6 +65,7 @@ export function useCreateSale() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [SALES_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }
@@ -77,6 +78,7 @@ export function useCompleteSale() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [SALES_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["stock"] });
     },
   });
@@ -90,6 +92,7 @@ export function useCancelSale() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [SALES_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
       queryClient.invalidateQueries({ queryKey: ["stock"] });
     },
   });

@@ -14,7 +14,9 @@ import { StockTable } from "@/components/dashboard/StockTable";
 import { ProductSheet } from "@/components/dashboard/ProductSheet";
 import { NewProductSheet } from "@/components/dashboard/NewProductSheet";
 import { useDashboardKpis, useStockPositions } from "@/lib/hooks/useDashboard";
-import { formatFCFAShort, formatQuantity } from "@/lib/utils/format";
+import { formatFCFA, formatFCFAShort, formatQuantity } from "@/lib/utils/format";
+import { StatTile } from "@/components/reports/StatTile";
+import { useAuthStore } from "@/lib/stores/authStore";
 import type { StockPosition } from "@/lib/types/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/hooks/useDashboard";
@@ -28,6 +30,8 @@ export default function DashboardPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newProductOpen, setNewProductOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { canViewCost, permissions } = useAuthStore();
+  const canCreateProduct = permissions.includes("products.create");
 
   const { data: kpis, isLoading: kpisLoading } = useDashboardKpis();
   const { data: stockData, isLoading: stockLoading } = useStockPositions({
@@ -47,9 +51,9 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-6 p-4 md:p-6">
       {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
             Tableau de bord
@@ -66,29 +70,34 @@ export default function DashboardPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             Actualiser
           </button>
-          <button
-            onClick={() => setNewProductOpen(true)}
-            className="flex items-center gap-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 px-3.5 py-1.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition active:scale-[0.98]"
-          >
-            <Plus className="h-4 w-4" />
-            Nouveau produit
-          </button>
+          {canCreateProduct && (
+            <button
+              onClick={() => setNewProductOpen(true)}
+              className="flex items-center gap-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 px-3.5 py-1.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition active:scale-[0.98]"
+            >
+              <Plus className="h-4 w-4" />
+              Nouveau produit
+            </button>
+          )}
         </div>
       </div>
 
       {/* KPI Grid */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          label="Valeur totale du stock"
-          value={
-            kpis ? formatFCFAShort(kpis.stock_value) : "—"
-          }
-          changePct={kpis?.stock_value_change_pct ?? null}
-          icon={Boxes}
-          iconColor="text-indigo-600 dark:text-indigo-400"
-          iconBg="bg-indigo-50 dark:bg-indigo-950"
-          loading={kpisLoading}
-        />
+        {canViewCost && (
+          <KpiCard
+            label="Valeur totale du stock"
+            value={
+              kpis ? formatFCFAShort(kpis.stock_value) : "—"
+            }
+            subValue={kpis ? `${formatQuantity(kpis.products_count)} produits actifs` : undefined}
+            changePct={null}
+            icon={Boxes}
+            iconColor="text-indigo-600 dark:text-indigo-400"
+            iconBg="bg-indigo-50 dark:bg-indigo-950"
+            loading={kpisLoading}
+          />
+        )}
         <KpiCard
           label="Ventes du jour"
           value={kpis ? formatFCFAShort(kpis.sales_today) : "—"}
@@ -97,33 +106,33 @@ export default function DashboardPage() {
               ? `${formatQuantity(kpis.sales_today_count)} commande${kpis.sales_today_count > 1 ? "s" : ""}`
               : undefined
           }
-          changePct={kpis?.sales_today_change_pct ?? null}
+          changePct={null}
           icon={ShoppingCart}
           iconColor="text-emerald-600 dark:text-emerald-400"
           iconBg="bg-emerald-50 dark:bg-emerald-950"
           loading={kpisLoading}
         />
         <KpiCard
-          label="Ruptures imminentes"
-          value={kpis ? String(kpis.low_stock_count) : "—"}
+          label="Stock faible / rupture"
+          value={kpis ? `${kpis.low_stock_count} / ${kpis.out_of_stock_count}` : "—"}
           subValue={
-            kpis && kpis.low_stock_count > 0
-              ? "produits en alerte"
+            kpis && kpis.low_stock_count + kpis.out_of_stock_count > 0
+              ? "sous le seuil / épuisés"
               : "Tout est en ordre"
           }
           icon={AlertTriangle}
           iconColor={
-            (kpis?.low_stock_count ?? 0) > 0
+            (kpis?.low_stock_count ?? 0) + (kpis?.out_of_stock_count ?? 0) > 0
               ? "text-rose-600 dark:text-rose-400"
               : "text-zinc-400"
           }
           iconBg={
-            (kpis?.low_stock_count ?? 0) > 0
+            (kpis?.low_stock_count ?? 0) + (kpis?.out_of_stock_count ?? 0) > 0
               ? "bg-rose-50 dark:bg-rose-950"
               : "bg-zinc-100 dark:bg-zinc-800"
           }
           loading={kpisLoading}
-          alert={(kpis?.low_stock_count ?? 0) > 0}
+          alert={(kpis?.low_stock_count ?? 0) + (kpis?.out_of_stock_count ?? 0) > 0}
         />
         <KpiCard
           label="Commandes en attente"
@@ -139,6 +148,27 @@ export default function DashboardPage() {
           loading={kpisLoading}
         />
       </div>
+
+      {/* Activité : semaine, mois (évolution vs mois précédent), marge, achats (§39) */}
+      {kpis && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile label="Ventes · 7 derniers jours" value={formatFCFA(kpis.sales_week_total)} hint="CA TTC" />
+          <StatTile
+            label="Ventes · ce mois"
+            value={formatFCFA(kpis.sales_month_total)}
+            delta={kpis.sales_month_evolution_pct}
+            deltaLabel="vs même durée avant"
+          />
+          {canViewCost && kpis.margin_month !== null && (
+            <StatTile
+              label="Marge brute · ce mois"
+              value={formatFCFA(kpis.margin_month)}
+              hint={kpis.margin_month_pct !== null ? `${kpis.margin_month_pct.toLocaleString("fr-FR")} % du CA HT` : "—"}
+            />
+          )}
+          <StatTile label="Achats · ce mois" value={formatFCFA(kpis.purchases_month_total)} hint="commandes confirmées" />
+        </div>
+      )}
 
       {/* Stock table */}
       <StockTable

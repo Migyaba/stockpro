@@ -25,6 +25,7 @@ class TaggedAutoSchema(AutoSchema):
         ("/api/invitations/", "Utilisateurs"),
         ("/api/organizations/", "Organisation"),
         ("/api/dashboard/", "Dashboard"),
+        ("/api/reports/", "Rapports"),
         ("/api/categories/", "Catalogue"),
         ("/api/products/", "Catalogue"),
         ("/api/warehouses/", "Stock"),

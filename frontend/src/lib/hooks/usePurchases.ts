@@ -88,6 +88,7 @@ export function useReceivePurchase() {
       queryClient.invalidateQueries({ queryKey: purchaseQueryKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: ["stock"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }

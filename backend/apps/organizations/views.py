@@ -1,7 +1,6 @@
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import timedelta
 
 from django.db.models import F, Sum
-from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,6 +11,8 @@ from apps.inventory.models import StockPosition
 from apps.organizations.serializers import DashboardSerializer, OrganizationSerializer
 from apps.products.models import Product
 from apps.purchases.models import Purchase, PurchaseStatus
+from apps.reports.periods import organization_today
+from apps.reports.services import ordered_purchases, sales_summary
 from apps.sales.models import Sale, SaleStatus
 
 
@@ -38,7 +39,7 @@ class DashboardView(APIView):
     def get(self, request):
         org = request.organization
         membership = request.membership
-        today = _organization_today(org)
+        today = organization_today(org)
         sales = restrict_to_allowed_warehouses(Sale.objects.filter(organization=org), membership)
         sales_today = sales.filter(status=SaleStatus.COMPLETED, sale_date=today)
         sales_today_total = sales_today.aggregate(t=Sum("total"))["t"] or 0
@@ -71,6 +72,15 @@ class DashboardView(APIView):
         recent = sales.order_by("-created_at")[:8].values(
             "id", "reference", "status", "total", "sale_date"
         )
+        # §39 : semaine glissante, mois en cours, achats du mois et marge.
+        month_start = today.replace(day=1)
+        week = sales.filter(
+            status=SaleStatus.COMPLETED, sale_date__range=(today - timedelta(days=6), today)
+        ).aggregate(t=Sum("total"))["t"] or 0
+        month = sales_summary(org, membership, month_start, today)["totals"]
+        purchases_month = (
+            ordered_purchases(org, membership, month_start, today).aggregate(t=Sum("total"))["t"] or 0
+        )
         warehouses = restrict_to_allowed_warehouses(
             org.inventory_warehouse_set.filter(is_active=True), membership, field="id"
         )
@@ -86,14 +96,16 @@ class DashboardView(APIView):
                 "out_of_stock_count": out_of_stock_count,
                 "pending_purchases": pending_purchases,
                 "warehouses_count": warehouses.count(),
+                "sales_week_total": week,
+                "sales_month_total": month["revenue"],
+                "sales_month_count": month["count"],
+                "sales_month_evolution_pct": month["revenue_evolution_pct"],
+                "purchases_month_total": purchases_month,
+                # Marge du mois : absente pour les rôles sans accès aux coûts.
+                "margin_month": month.get("margin"),
+                "margin_month_pct": month.get("margin_pct"),
                 "recent_sales": list(recent),
             }
         )
 
 
-def _organization_today(org):
-    try:
-        tz = ZoneInfo(org.timezone)
-    except (ZoneInfoNotFoundError, ValueError):
-        tz = None
-    return timezone.localdate(timezone=tz)
