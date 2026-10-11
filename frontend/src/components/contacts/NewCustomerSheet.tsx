@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useCreateCustomer } from "@/lib/hooks/useCustomers";
 import type { CreateCustomerPayload } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface NewCustomerSheetProps {
   open: boolean;
@@ -65,9 +66,7 @@ export function NewCustomerSheet({
       onOpenChange(false);
       onSuccess?.();
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Erreur lors de l'enregistrement du client."
-      );
+      setError(getApiErrorMessage(err, "Erreur lors de l'enregistrement du client."));
     }
   };
 

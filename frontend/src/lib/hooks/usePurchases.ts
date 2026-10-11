@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchPurchases,
   fetchPurchaseDetail,
+  fetchPurchasesSummary,
   createPurchase,
   confirmPurchase,
   receivePurchase,
@@ -36,6 +37,15 @@ export function usePurchaseDetail(id: string | null) {
     queryFn: () => fetchPurchaseDetail(id!),
     enabled: Boolean(id),
     staleTime: 1000 * 30,
+  });
+}
+
+// Clé sous « purchases » : invalidée avec les listes après chaque action.
+export function usePurchasesSummary(filters: { search?: string; warehouse?: string } = {}) {
+  return useQuery({
+    queryKey: [...purchaseQueryKeys.all, "summary", filters] as const,
+    queryFn: () => fetchPurchasesSummary(filters),
+    staleTime: 30_000,
   });
 }
 

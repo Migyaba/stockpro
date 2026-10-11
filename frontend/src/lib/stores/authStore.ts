@@ -2,16 +2,20 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { UserProfile, Membership, Organization, Warehouse, Role } from "@/lib/types/api";
 
-// Sync access token to a cookie readable by Next.js middleware
-function syncCookie(token: string | null) {
+// Marqueur de session lisible par le middleware Next.js. Il vit aussi longtemps
+// que le refresh token (14 jours) : l'access token (30 min) est renouvelé à la
+// volée par l'intercepteur axios, l'inactivité ne doit donc pas déconnecter.
+const SESSION_COOKIE = "sp_session";
+const SESSION_MAX_AGE = 14 * 24 * 60 * 60;
+
+function syncSessionCookie(active: boolean) {
   if (typeof document === "undefined") return;
-  if (token) {
-    // SameSite=Strict; no HttpOnly so JS can write it
-    // For production, prefer server-side Set-Cookie via an API route
-    document.cookie = `sp_access=${token}; path=/; SameSite=Strict; max-age=1800`;
-  } else {
-    document.cookie = "sp_access=; path=/; max-age=0";
-  }
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = active
+    ? `${SESSION_COOKIE}=1; path=/; SameSite=Lax; max-age=${SESSION_MAX_AGE}${secure}`
+    : `${SESSION_COOKIE}=; path=/; max-age=0`;
+  // Nettoyage de l'ancien cookie qui contenait le jeton d'accès.
+  document.cookie = "sp_access=; path=/; max-age=0";
 }
 
 interface AuthState {
@@ -25,6 +29,7 @@ interface AuthState {
 
   // Computed helpers
   role: Role | null;
+  permissions: string[];
   canViewCost: boolean;
   canCancelSale: boolean;
   canInviteUsers: boolean;
@@ -37,14 +42,15 @@ interface AuthState {
   setWarehouses: (warehouses: Warehouse[]) => void;
   setActiveWarehouse: (warehouse: Warehouse) => void;
   logout: () => void;
+  hasPermission: (code: string) => boolean;
 }
 
-function derivePermissions(role: Role | null) {
+function derivePermissions(permissions: string[]) {
   return {
-    canViewCost: role !== "STAFF",
-    canCancelSale: role === "OWNER" || role === "ADMINISTRATOR",
-    canInviteUsers: role === "OWNER" || role === "ADMINISTRATOR",
-    canManageBilling: role === "OWNER",
+    canViewCost: permissions.includes("prices.view_cost"),
+    canCancelSale: permissions.includes("sales.cancel"),
+    canInviteUsers: permissions.includes("users.invite"),
+    canManageBilling: permissions.includes("billing.manage"),
   };
 }
 
@@ -59,25 +65,27 @@ export const useAuthStore = create<AuthState>()(
       activeWarehouse: null,
       warehouses: [],
       role: null,
+      permissions: [],
       canViewCost: false,
       canCancelSale: false,
       canInviteUsers: false,
       canManageBilling: false,
 
       setTokens: (access, refresh) => {
-        syncCookie(access);
+        syncSessionCookie(true);
         set({ accessToken: access, refreshToken: refresh });
       },
 
       setUser: (user) => set({ user }),
 
       setMembership: (membership) => {
-        const role = membership.role;
+        const permissions = membership.permissions ?? [];
         set({
           membership,
           organization: membership.organization,
-          role,
-          ...derivePermissions(role),
+          role: membership.role,
+          permissions,
+          ...derivePermissions(permissions),
         });
       },
 
@@ -96,7 +104,7 @@ export const useAuthStore = create<AuthState>()(
       setActiveWarehouse: (warehouse) => set({ activeWarehouse: warehouse }),
 
       logout: () => {
-        syncCookie(null);
+        syncSessionCookie(false);
         set({
           accessToken: null,
           refreshToken: null,
@@ -106,12 +114,15 @@ export const useAuthStore = create<AuthState>()(
           activeWarehouse: null,
           warehouses: [],
           role: null,
+          permissions: [],
           canViewCost: false,
           canCancelSale: false,
           canInviteUsers: false,
           canManageBilling: false,
         });
       },
+
+      hasPermission: (code) => get().permissions.includes(code),
     }),
     {
       name: "stockpro-auth",
@@ -124,6 +135,12 @@ export const useAuthStore = create<AuthState>()(
         organization: state.organization,
         activeWarehouse: state.activeWarehouse,
         warehouses: state.warehouses,
+        role: state.role,
+        permissions: state.permissions,
+        canViewCost: state.canViewCost,
+        canCancelSale: state.canCancelSale,
+        canInviteUsers: state.canInviteUsers,
+        canManageBilling: state.canManageBilling,
       }),
     }
   )

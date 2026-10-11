@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { useDashboardKpis } from "@/lib/hooks/useDashboard";
-import { useRouter } from "next/navigation";
+import { useLogout } from "@/lib/hooks/useAuth";
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: "Propriétaire",
@@ -49,7 +49,6 @@ interface HeaderProps {
 
 export function Header({ pageTitle }: HeaderProps) {
   const { theme, setTheme } = useTheme();
-  const router = useRouter();
   const {
     user,
     role,
@@ -57,15 +56,16 @@ export function Header({ pageTitle }: HeaderProps) {
     activeWarehouse,
     warehouses,
     setActiveWarehouse,
-    logout,
   } = useAuthStore();
   const { data: kpis } = useDashboardKpis();
 
   const lowStockCount = kpis?.low_stock_count ?? 0;
 
+  const logoutMutation = useLogout();
+
+  // Révoque le refresh token côté serveur et purge le cache avant de quitter.
   function handleLogout() {
-    logout();
-    router.push("/login");
+    logoutMutation.mutate();
   }
 
   return (

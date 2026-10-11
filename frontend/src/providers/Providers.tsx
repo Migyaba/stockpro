@@ -5,6 +5,7 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { ThemeProvider } from "next-themes";
 import { type ReactNode, useState } from "react";
 import { BootstrapProvider } from "@/providers/BootstrapProvider";
+import { Toaster } from "@/components/ui/Toaster";
 
 interface ProvidersProps {
   children: ReactNode;
@@ -37,6 +38,7 @@ export function Providers({ children }: ProvidersProps) {
         disableTransitionOnChange
       >
         <BootstrapProvider>{children}</BootstrapProvider>
+        <Toaster />
         <ReactQueryDevtools initialIsOpen={false} />
       </ThemeProvider>
     </QueryClientProvider>

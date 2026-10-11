@@ -33,11 +33,29 @@ import { NewWarehouseSheet } from "@/components/settings/NewWarehouseSheet";
 import { InviteMemberSheet } from "@/components/settings/InviteMemberSheet";
 import { SubscriptionSection } from "@/components/settings/SubscriptionSection";
 import type { Role } from "@/lib/types/api";
+import { toast } from "@/lib/stores/toastStore";
+import { useAuthStore } from "@/lib/stores/authStore";
+import { ChangePasswordForm } from "@/components/settings/ChangePasswordForm";
 
 type SettingsTab = "org" | "warehouses" | "team" | "security" | "billing";
 
+const TAB_PERMISSIONS: Record<SettingsTab, string | null> = {
+  org: "settings.view",
+  warehouses: "settings.view",
+  team: "users.view",
+  security: null,
+  billing: "billing.manage",
+};
+
 export default function ParametresPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("org");
+  const { permissions } = useAuthStore();
+  const canSeeTab = (tab: SettingsTab) => {
+    const code = TAB_PERMISSIONS[tab];
+    return !code || permissions.includes(code);
+  };
+  // Un vendeur n'a que l'onglet « Mon compte » : on ne l'envoie pas sur un onglet interdit.
+  const currentTab: SettingsTab = canSeeTab(activeTab) ? activeTab : "security";
   const [newWarehouseOpen, setNewWarehouseOpen] = useState(false);
   const [inviteMemberOpen, setInviteMemberOpen] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -62,21 +80,22 @@ export default function ParametresPage() {
     phone: "",
   });
 
-  // Sync form when org data is loaded
-  useEffect(() => {
-    if (org) {
-      setOrgForm({
+  // Recopie le profil dans le formulaire à chaque nouvelle version chargée
+  // (ajustement pendant le rendu plutôt qu'un effet, cf. doc React).
+  const [syncedOrg, setSyncedOrg] = useState<typeof org>(undefined);
+  if (org && org !== syncedOrg) {
+    setSyncedOrg(org);
+    setOrgForm({
         name: org.name || "",
         country: org.country || "BJ",
         currency: org.currency || "XOF",
         timezone: org.timezone || "Africa/Porto-Novo",
         tax_enabled: org.tax_enabled ?? true,
         tax_rate_bps: org.tax_rate_bps ?? 1800,
-        address: org.address || "",
-        phone: org.phone || "",
-      });
-    }
-  }, [org]);
+      address: org.address || "",
+      phone: org.phone || "",
+    });
+  }
 
   const handleSaveOrg = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,8 +104,8 @@ export default function ParametresPage() {
       await updateOrg.mutateAsync(orgForm);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch {
-      // Handled
+    } catch (err) {
+      toast.apiError(err, "Impossible d'enregistrer les paramètres.");
     }
   };
 
@@ -134,87 +153,95 @@ export default function ParametresPage() {
 
       {/* ─── Tabs Navigation ──────────────────────────────────────────────── */}
       <div className="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800 pb-3 overflow-x-auto">
-        <button
-          onClick={() => setActiveTab("org")}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-            activeTab === "org"
-              ? "bg-indigo-600 text-white shadow-xs"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
-          }`}
-        >
-          <Building className="h-4 w-4" />
-          <span>Entreprise & Fiscalité</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab("warehouses")}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-            activeTab === "warehouses"
-              ? "bg-indigo-600 text-white shadow-xs"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
-          }`}
-        >
-          <Boxes className="h-4 w-4" />
-          <span>Dépôts & Magasins</span>
-          <span
-            className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-              activeTab === "warehouses"
-                ? "bg-indigo-500 text-white"
-                : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+        {canSeeTab("org") && (
+          <button
+            onClick={() => setActiveTab("org")}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
+              currentTab === "org"
+                ? "bg-indigo-600 text-white shadow-xs"
+                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
             }`}
           >
-            {warehouses.length}
-          </span>
-        </button>
+            <Building className="h-4 w-4" />
+            <span>Entreprise & Fiscalité</span>
+          </button>
+        )}
 
-        <button
-          onClick={() => setActiveTab("team")}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-            activeTab === "team"
-              ? "bg-indigo-600 text-white shadow-xs"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
-          }`}
-        >
-          <Users className="h-4 w-4" />
-          <span>Équipe & Accès</span>
-          <span
-            className={`px-1.5 py-0.2 rounded-full text-[10px] ${
-              activeTab === "team"
-                ? "bg-indigo-500 text-white"
-                : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+        {canSeeTab("warehouses") && (
+          <button
+            onClick={() => setActiveTab("warehouses")}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
+              currentTab === "warehouses"
+                ? "bg-indigo-600 text-white shadow-xs"
+                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
             }`}
           >
-            {members.length}
-          </span>
-        </button>
+            <Boxes className="h-4 w-4" />
+            <span>Dépôts & Magasins</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                currentTab === "warehouses"
+                  ? "bg-indigo-500 text-white"
+                  : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+              }`}
+            >
+              {warehouses.length}
+            </span>
+          </button>
+        )}
+
+        {canSeeTab("team") && (
+          <button
+            onClick={() => setActiveTab("team")}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
+              currentTab === "team"
+                ? "bg-indigo-600 text-white shadow-xs"
+                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            <Users className="h-4 w-4" />
+            <span>Équipe & Accès</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                currentTab === "team"
+                  ? "bg-indigo-500 text-white"
+                  : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+              }`}
+            >
+              {members.length}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab("security")}
           className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-            activeTab === "security"
+            currentTab === "security"
               ? "bg-indigo-600 text-white shadow-xs"
               : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
           }`}
         >
           <Shield className="h-4 w-4" />
-          <span>Sécurité & Données</span>
+          <span>Mon compte</span>
         </button>
 
-        <button
-          onClick={() => setActiveTab("billing")}
-          className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
-            activeTab === "billing"
-              ? "bg-indigo-600 text-white shadow-xs"
-              : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
-          }`}
-        >
-          <CreditCard className="h-4 w-4" />
-          <span>Abonnement & Facturation</span>
-        </button>
+        {canSeeTab("billing") && (
+          <button
+            onClick={() => setActiveTab("billing")}
+            className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-colors shrink-0 ${
+              currentTab === "billing"
+                ? "bg-indigo-600 text-white shadow-xs"
+                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            <CreditCard className="h-4 w-4" />
+            <span>Abonnement & Facturation</span>
+          </button>
+        )}
       </div>
 
       {/* ─── Tab 1 : Organisation ─────────────────────────────────────────── */}
-      {activeTab === "org" && (
+      {currentTab === "org" && (
         <div className="rounded-xl border border-zinc-200/80 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 max-w-3xl">
           <form onSubmit={handleSaveOrg} className="space-y-5">
             <div className="border-b border-zinc-200 dark:border-zinc-800 pb-4">
@@ -356,7 +383,7 @@ export default function ParametresPage() {
       )}
 
       {/* ─── Tab 2 : Dépôts & Magasins ────────────────────────────────────── */}
-      {activeTab === "warehouses" && (
+      {currentTab === "warehouses" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -422,10 +449,10 @@ export default function ParametresPage() {
                 <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-xs">
                   <button
                     onClick={() =>
-                      toggleWarehouse.mutate({
-                        id: wh.id,
-                        is_active: !wh.is_active,
-                      })
+                      toggleWarehouse.mutate(
+                        { id: wh.id, is_active: !wh.is_active },
+                        { onError: (err) => toast.apiError(err, "Impossible de modifier le dépôt.") }
+                      )
                     }
                     className="text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 text-[11px] underline"
                   >
@@ -440,7 +467,7 @@ export default function ParametresPage() {
       )}
 
       {/* ─── Tab 3 : Équipe & Permissions ─────────────────────────────────── */}
-      {activeTab === "team" && (
+      {currentTab === "team" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -521,10 +548,13 @@ export default function ParametresPage() {
                         {mem.role !== "OWNER" && (
                           <button
                             onClick={() =>
-                              toggleMember.mutate({
-                                id: mem.id,
-                                is_active: !mem.is_active,
-                              })
+                              toggleMember.mutate(
+                                { id: mem.id, is_active: !mem.is_active },
+                                {
+                                  onError: (err) =>
+                                    toast.apiError(err, "Impossible de modifier ce membre."),
+                                }
+                              )
                             }
                             className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 underline"
                           >
@@ -541,66 +571,11 @@ export default function ParametresPage() {
         </div>
       )}
 
-      {/* ─── Tab 4 : Sécurité & Données ───────────────────────────────────── */}
-      {activeTab === "security" && (
-        <div className="rounded-xl border border-zinc-200/80 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 max-w-2xl space-y-6">
-          <div>
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
-              Sécurité & Environnement Docker
-            </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              STOCKPRO s'exécute dans des conteneurs isolés avec chiffrement Argon2.
-            </p>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div className="p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-lg border border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
-              <div>
-                <p className="font-semibold text-zinc-800 dark:text-zinc-200">
-                  Algorithme de hachage
-                </p>
-                <p className="text-zinc-400 text-[11px]">
-                  Argon2PasswordHasher (Recommandation OWASP)
-                </p>
-              </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                ACTIF
-              </span>
-            </div>
-
-            <div className="p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-lg border border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
-              <div>
-                <p className="font-semibold text-zinc-800 dark:text-zinc-200">
-                  Base de données relationnelle
-                </p>
-                <p className="text-zinc-400 text-[11px]">
-                  PostgreSQL 16 Multi-tenant (Volume stockpro_pgdata)
-                </p>
-              </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
-                CONNECTED
-              </span>
-            </div>
-
-            <div className="p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-lg border border-zinc-200 dark:border-zinc-800 flex justify-between items-center">
-              <div>
-                <p className="font-semibold text-zinc-800 dark:text-zinc-200">
-                  Isolation des données
-                </p>
-                <p className="text-zinc-400 text-[11px]">
-                  Filtrage strict par Organisation ID sur toutes les requêtes SQL
-                </p>
-              </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
-                ENFORCED
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ─── Tab 4 : Mon compte (tous les rôles) ──────────────────────────── */}
+      {currentTab === "security" && <ChangePasswordForm />}
 
       {/* ─── Tab 5 : Facturation & Abonnement AlphaPay ──────────────────── */}
-      {activeTab === "billing" && <SubscriptionSection />}
+      {currentTab === "billing" && <SubscriptionSection />}
 
       {/* ─── Modales & Fiches ─────────────────────────────────────────────── */}
       <NewWarehouseSheet

@@ -20,6 +20,7 @@ import { formatFCFA } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useCategories, useCreateProduct } from "@/lib/hooks/useProducts";
 import type { ProductCreatePayload } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface NewProductSheetProps {
   open: boolean;
@@ -133,11 +134,7 @@ export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
       setHasInitialStock(false);
       onOpenChange(false);
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string } } };
-      setErrorMsg(
-        errorObj.response?.data?.detail ??
-          "Une erreur est survenue lors de la création du produit."
-      );
+      setErrorMsg(getApiErrorMessage(err, "Une erreur est survenue lors de la création du produit."));
     }
   }
 

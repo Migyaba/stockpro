@@ -19,6 +19,7 @@ import {
 import { useInviteMember } from "@/lib/hooks/useOrganization";
 import { useWarehouses } from "@/lib/hooks/useWarehouses";
 import type { InviteMemberPayload, Role } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface InviteMemberSheetProps {
   open: boolean;
@@ -91,11 +92,7 @@ export function InviteMemberSheet({
       onOpenChange(false);
       onSuccess?.();
     } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Erreur lors de l'envoi de l'invitation."
-      );
+      setError(getApiErrorMessage(err, "Erreur lors de l'envoi de l'invitation."));
     }
   };
 

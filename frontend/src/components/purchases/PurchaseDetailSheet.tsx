@@ -29,6 +29,7 @@ import {
   useCancelPurchase,
 } from "@/lib/hooks/usePurchases";
 import type { Purchase, PurchaseStatus } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface PurchaseDetailSheetProps {
   purchase: Purchase | null;
@@ -108,11 +109,7 @@ export function PurchaseDetailSheet({
     try {
       await confirmPurchase.mutateAsync(purchase.id);
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string } } };
-      setActionError(
-        errorObj.response?.data?.detail ??
-          "Impossible de confirmer la commande."
-      );
+      setActionError(getApiErrorMessage(err, "Impossible de confirmer la commande."));
     }
   }
 
@@ -123,10 +120,7 @@ export function PurchaseDetailSheet({
     try {
       await cancelPurchase.mutateAsync(purchase.id);
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string } } };
-      setActionError(
-        errorObj.response?.data?.detail ?? "Impossible d'annuler la commande."
-      );
+      setActionError(getApiErrorMessage(err, "Impossible d'annuler la commande."));
     }
   }
 
@@ -154,11 +148,7 @@ export function PurchaseDetailSheet({
       });
       setReceivingMode(false);
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string } } };
-      setActionError(
-        errorObj.response?.data?.detail ??
-          "Une erreur est survenue lors de la réception de la marchandise."
-      );
+      setActionError(getApiErrorMessage(err, "Une erreur est survenue lors de la réception de la marchandise."));
     }
   }
 

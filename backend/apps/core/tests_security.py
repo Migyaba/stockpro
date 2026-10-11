@@ -378,3 +378,27 @@ class ConcurrentCompletionTests(TransactionTestCase):
 
         self.assertEqual(sorted(outcomes), ["ok", "refused"])
         self.assertEqual(StockPosition.objects.get(product=product).quantity, 0)
+
+
+class ListSummaryTests(SecurityTestCase):
+    def test_sales_summary_covers_all_pages(self):
+        for _ in range(30):
+            self.create_sale()
+        completed = self.create_sale(quantity=2)
+        self.client.post(f"/api/sales/{completed}/complete/")
+        res = self.client.get("/api/sales/summary/")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["count"], 31)
+        self.assertEqual(res.data["draft_count"], 30)
+        self.assertEqual(res.data["completed_total"], 2000)
+        self.assertEqual(res.data["average_ticket"], 2000)
+
+    def test_purchases_summary(self):
+        res = self.client.get("/api/purchases/summary/")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(res.data["count"], 0)
+
+    def test_membership_exposes_permissions_and_tax_settings(self):
+        res = self.client.get("/api/auth/membership/")
+        self.assertIn("sales.cancel", res.data["permissions"])
+        self.assertIn("tax_enabled", res.data["organization"])

@@ -47,7 +47,7 @@ export interface UserProfile {
 export type OrgStatus = "ACTIVE" | "TRIAL" | "SUSPENDED" | "CANCELLED";
 
 export interface Organization {
-  id: number;
+  id: string;
   name: string;
   slug: string;
   logo: string | null;
@@ -69,11 +69,13 @@ export interface Organization {
 
 // ─── Membership ────────────────────────────────────────────────────────────
 export interface Membership {
-  id: number;
+  id: string;
   role: Role;
   is_active: boolean;
+  /** Codes de permission calculés par le backend (ex. "sales.cancel"). */
+  permissions: string[];
+  warehouse_ids: string[];
   organization: Organization;
-  user: UserProfile;
 }
 
 // ─── Warehouse ─────────────────────────────────────────────────────────────
@@ -412,3 +414,22 @@ export interface CheckoutSessionResponse {
   is_sandbox?: boolean;
 }
 
+
+// ─── Résumés de listes (calculés côté serveur, toutes pages confondues) ─────
+export interface SalesSummary {
+  count: number;
+  completed_count: number;
+  draft_count: number;
+  cancelled_count: number;
+  completed_total: number;
+  average_ticket: number;
+}
+
+export interface PurchasesSummary {
+  count: number;
+  draft_count: number;
+  pending_count: number;
+  received_count: number;
+  cancelled_count: number;
+  received_total: number;
+}

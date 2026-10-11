@@ -9,8 +9,8 @@ const AUTH_PATHS_REGEX = /^\/(dashboard|ventes|achats|stock|contacts|rapports|pa
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Read JWT access token from cookies (set after login)
-  const accessToken = request.cookies.get("sp_access")?.value;
+  // Marqueur de session posé au login (durée du refresh token), cf. authStore.
+  const hasSession = request.cookies.get("sp_session")?.value === "1";
 
   const isPublicPath = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)
@@ -18,14 +18,14 @@ export function middleware(request: NextRequest) {
   const isAppPath = AUTH_PATHS_REGEX.test(pathname);
 
   // Redirect unauthenticated users trying to access app routes
-  if (isAppPath && !accessToken) {
+  if (isAppPath && !hasSession) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // Redirect authenticated users away from auth pages
-  if (isPublicPath && accessToken) {
+  if (isPublicPath && hasSession) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
