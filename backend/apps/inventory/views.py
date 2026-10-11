@@ -37,6 +37,7 @@ from apps.inventory.serializers import (
     TransferSerializer,
     WarehouseSerializer,
 )
+from apps.inventory.stock_levels import LOW, LOW_Q, NORMAL, OUT_OF_STOCK, OUT_OF_STOCK_Q
 from apps.inventory.transfers import complete_transfer
 
 
@@ -76,10 +77,12 @@ class StockViewSet(TenantViewSet):
         if ids and self.request.membership.role not in {"OWNER", "ADMINISTRATOR"}:
             qs = qs.filter(warehouse_id__in=ids)
         status = self.request.query_params.get("status")
-        if status == "LOW":
-            qs = qs.filter(quantity__lte=F("product__minimum_stock"))
-        elif status == "OUT_OF_STOCK":
-            qs = qs.filter(quantity=0)
+        if status == LOW:
+            qs = qs.filter(LOW_Q)
+        elif status == OUT_OF_STOCK:
+            qs = qs.filter(OUT_OF_STOCK_Q)
+        elif status == NORMAL:
+            qs = qs.exclude(LOW_Q | OUT_OF_STOCK_Q)
         return qs
 
 
@@ -290,9 +293,12 @@ class StockAlertView(APIView):
         ).select_related("product", "warehouse")
         if request.query_params.get("warehouse"):
             positions = positions.filter(warehouse_id=request.query_params["warehouse"])
-        out = Q(quantity=0)
-        low = Q(quantity__gt=0, product__minimum_stock__gt=0, quantity__lte=F("product__minimum_stock"))
-        counts = {"out": positions.filter(out).count(), "low": positions.filter(low).count()}
+        out, low = OUT_OF_STOCK_Q, LOW_Q
+        counts = {
+            "out": positions.filter(out).count(),
+            "low": positions.filter(low).count(),
+            "total": positions.count(),
+        }
         kind = request.query_params.get("kind")
         alerts = positions.filter(out if kind == "out" else low if kind == "low" else out | low)
         # Ruptures d'abord, puis les stocks les plus entamés par rapport au seuil.

@@ -10,6 +10,7 @@ from apps.audit.services import AuditAction, diff, snapshot, write_audit
 from apps.core.permissions import require_permission
 from apps.core.viewsets import restrict_to_allowed_warehouses
 from apps.inventory.models import StockPosition
+from apps.inventory.stock_levels import LOW_Q, OUT_OF_STOCK_Q
 from apps.organizations.serializers import DashboardSerializer, OrganizationSerializer
 from apps.products.models import Product
 from apps.purchases.models import Purchase, PurchaseStatus
@@ -56,12 +57,8 @@ class DashboardView(APIView):
         positions = restrict_to_allowed_warehouses(
             StockPosition.objects.filter(organization=org, product__is_active=True), membership
         )
-        low_stock_count = positions.filter(
-            product__minimum_stock__gt=0,
-            quantity__gt=0,
-            quantity__lte=F("product__minimum_stock"),
-        ).count()
-        out_of_stock_count = positions.filter(quantity=0).count()
+        low_stock_count = positions.filter(LOW_Q).count()
+        out_of_stock_count = positions.filter(OUT_OF_STOCK_Q).count()
         stock_value = (
             positions.annotate(value=F("quantity") * F("product__purchase_price")).aggregate(
                 total=Sum("value")

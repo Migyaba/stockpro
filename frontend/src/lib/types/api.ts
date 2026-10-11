@@ -397,15 +397,15 @@ export interface DashboardKpis {
 }
 
 // ─── Stock Level Badge ─────────────────────────────────────────────────────
-export type StockLevel = "normal" | "low" | "critical" | "out_of_stock";
+export type StockLevel = "normal" | "low" | "out_of_stock";
 
-export function getStockLevel(
-  quantity: number,
-  minimumStock: number
-): StockLevel {
+/**
+ * Même règle que le backend (apps/inventory/stock_levels.py), les alertes et le dashboard :
+ * rupture = 0 ; faible = 0 < quantité ≤ seuil (si le produit a un seuil) ; sinon normal.
+ */
+export function getStockLevel(quantity: number, minimumStock: number): StockLevel {
   if (quantity === 0) return "out_of_stock";
-  if (quantity < minimumStock) return "critical";
-  if (quantity < minimumStock * 2) return "low";
+  if (minimumStock > 0 && quantity <= minimumStock) return "low";
   return "normal";
 }
 
@@ -618,7 +618,7 @@ export interface StockAlert {
 }
 
 export interface StockAlertPage extends PaginatedResponse<StockAlert> {
-  summary: { out: number; low: number };
+  summary: { out: number; low: number; total: number };
 }
 
 export interface AppNotification {

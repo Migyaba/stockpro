@@ -112,14 +112,12 @@ const MOVEMENT_CONFIG: Record<
 const STOCK_LEVEL_COLORS = {
   normal: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
   low: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
-  critical: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
-  out_of_stock: "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
+  out_of_stock: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
 };
 
 const STOCK_LEVEL_LABELS = {
   normal: "Normal",
   low: "Faible",
-  critical: "Critique",
   out_of_stock: "Rupture",
 };
 

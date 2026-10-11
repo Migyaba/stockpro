@@ -14,6 +14,7 @@ from apps.inventory.models import (
     TransferItem,
     Warehouse,
 )
+from apps.inventory.stock_levels import stock_level
 from apps.products.serializers import ProductSerializer
 
 
@@ -59,11 +60,7 @@ class StockPositionSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=["NORMAL", "LOW", "OUT_OF_STOCK"]))
     def get_status(self, obj):
-        if obj.quantity == 0:
-            return "OUT_OF_STOCK"
-        if obj.product.minimum_stock and obj.quantity <= obj.product.minimum_stock:
-            return "LOW"
-        return "NORMAL"
+        return stock_level(obj.quantity, obj.product.minimum_stock)
 
 
 class StockMovementSerializer(serializers.ModelSerializer):

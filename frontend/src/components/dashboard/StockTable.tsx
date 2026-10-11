@@ -34,8 +34,7 @@ const STOCK_BADGE: Record<
 > = {
   normal: { label: "Normal", variant: "success" },
   low: { label: "Faible", variant: "warning" },
-  critical: { label: "Critique", variant: "destructive" },
-  out_of_stock: { label: "Rupture", variant: "secondary" },
+  out_of_stock: { label: "Rupture", variant: "destructive" },
 };
 
 export function StockTable({
@@ -185,8 +184,7 @@ export function StockTable({
                       <td className="px-4 py-3 text-right">
                         <span className={cn(
                           "font-numeric font-semibold",
-                          level === "out_of_stock" ? "text-zinc-400 line-through"
-                          : level === "critical" ? "text-rose-600 dark:text-rose-400"
+                          level === "out_of_stock" ? "text-rose-600 dark:text-rose-400"
                           : level === "low" ? "text-amber-600 dark:text-amber-400"
                           : "text-zinc-900 dark:text-zinc-50"
                         )}>

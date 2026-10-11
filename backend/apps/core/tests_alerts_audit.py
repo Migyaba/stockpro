@@ -28,7 +28,7 @@ class StockAlertTests(SecurityTestCase):
         self.sell(16)  # reste 4 ≤ 5
         res = self.client.get("/api/alerts/stock/")
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(res.data["summary"], {"out": 1, "low": 1})
+        self.assertEqual(res.data["summary"], {"out": 1, "low": 1, "total": 2})
         kinds = [a["kind"] for a in res.data["results"]]
         self.assertEqual(kinds, ["out", "low"])
         self.assertEqual(self.client.get("/api/alerts/stock/", {"kind": "low"}).data["count"], 1)
@@ -112,3 +112,22 @@ class AuditTrailTests(SecurityTestCase):
         _, manager = self.member(Role.MANAGER)
         self.auth(manager)
         self.assertEqual(self.client.get("/api/audit/").status_code, 403)
+
+
+class StockLevelConsistencyTests(SecurityTestCase):
+    """Une seule règle partout : rupture = 0, faible = 0 < qté ≤ seuil, sinon normal."""
+
+    def test_status_field_filter_and_alerts_agree(self):
+        # TS-1 : 20 en stock. Seuil 10 → normal (même si < 2 × seuil).
+        self.client.patch(f"/api/products/{self.product_id}/", {"minimum_stock": 10}, format="json")
+        position = self.client.get("/api/stock/", {"product": self.product_id}).data["results"][0]
+        self.assertEqual(position["status"], "NORMAL")
+        self.assertEqual(self.client.get("/api/stock/", {"status": "LOW"}).data["count"], 0)
+        # Seuil 20 → faible, partout.
+        self.client.patch(f"/api/products/{self.product_id}/", {"minimum_stock": 20}, format="json")
+        position = self.client.get("/api/stock/", {"product": self.product_id}).data["results"][0]
+        self.assertEqual(position["status"], "LOW")
+        self.assertEqual(self.client.get("/api/stock/", {"status": "LOW"}).data["count"], 1)
+        self.assertEqual(self.client.get("/api/alerts/stock/").data["summary"]["low"], 1)
+        self.assertEqual(self.client.get("/api/dashboard/").data["low_stock_count"], 1)
+        self.assertEqual(self.client.get("/api/stock/", {"status": "NORMAL"}).data["count"], 0)
