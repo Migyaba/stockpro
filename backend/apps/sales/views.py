@@ -1,3 +1,4 @@
+from django.db.models import Count, Sum
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -5,7 +6,7 @@ from apps.audit.services import AuditAction, write_audit
 from apps.core.idempotency import idempotent
 from apps.core.permissions import require_permission
 from apps.core.viewsets import TenantViewSet
-from apps.sales.models import Sale
+from apps.sales.models import Sale, SaleStatus
 from apps.sales.serializers import SaleSerializer
 from apps.sales.services import cancel_sale, complete_sale
 
@@ -34,6 +35,24 @@ class SaleViewSet(TenantViewSet):
         if ids and self.request.membership.role not in {"OWNER", "ADMINISTRATOR"}:
             qs = qs.filter(warehouse_id__in=ids)
         return qs
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """Indicateurs de la liste (recherche et dépôt appliqués, tous statuts confondus)."""
+        qs = self.filter_queryset(self.get_queryset()).order_by()
+        counts = dict(qs.values_list("status").annotate(n=Count("id")))
+        completed_total = qs.filter(status=SaleStatus.COMPLETED).aggregate(t=Sum("total"))["t"] or 0
+        completed_count = counts.get(SaleStatus.COMPLETED, 0)
+        return Response(
+            {
+                "count": sum(counts.values()),
+                "completed_count": completed_count,
+                "draft_count": counts.get(SaleStatus.DRAFT, 0),
+                "cancelled_count": counts.get(SaleStatus.CANCELLED, 0),
+                "completed_total": completed_total,
+                "average_ticket": round(completed_total / completed_count) if completed_count else 0,
+            }
+        )
 
     @action(detail=True, methods=["post"])
     @idempotent

@@ -22,7 +22,12 @@ import { formatFCFA } from "@/lib/utils/format";
 
 export function SubscriptionSection() {
   const queryClient = useQueryClient();
-  const [selectedPlan, setSelectedPlan] = useState<"monthly" | "quarterly">("monthly");
+  // Paramètres de retour AlphaPay / plan présélectionné, lus une seule fois
+  // (la zone connectée n'est rendue que côté client, window est disponible).
+  const [urlParams] = useState(() => new URLSearchParams(window.location.search));
+  const [selectedPlan, setSelectedPlan] = useState<"monthly" | "quarterly">(
+    urlParams.get("plan") === "quarterly" ? "quarterly" : "monthly"
+  );
   const [phoneNumber, setPhoneNumber] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -52,27 +57,14 @@ export function SubscriptionSection() {
     },
   });
 
-  // Détection du retour de paiement AlphaPay dans l'URL (?payment=success) ou du plan présélectionné
+  // Retour de paiement AlphaPay (?payment=success) : on vérifie une seule fois.
+  const { mutate: verify } = verifyMutation;
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const isPaymentSuccess = params.get("payment") === "success";
-      const paymentRef = params.get("ref");
-      const planParam = params.get("plan");
-
-      if (planParam === "quarterly" || planParam === "monthly") {
-        setSelectedPlan(planParam);
-      }
-
-      if (isPaymentSuccess) {
-        setSuccessMsg("Vérification de la confirmation de votre paiement en cours...");
-        verifyMutation.mutate(paymentRef || undefined);
-
-        // Nettoyage propre de l'URL sans rechargement
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    }
-  }, []);
+    if (urlParams.get("payment") !== "success") return;
+    verify(urlParams.get("ref") || undefined);
+    // Nettoyage de l'URL sans rechargement
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }, [urlParams, verify]);
 
   const handleVerify = (ref: string) => {
     setVerifyingRef(ref);
@@ -229,6 +221,13 @@ export function SubscriptionSection() {
           <p>
             Votre abonnement expire dans <strong>{sub.days_remaining} jour(s)</strong>. Renouvelez-le dès maintenant pour éviter l'interruption de vos encaissements et accès aux stocks.
           </p>
+        </div>
+      )}
+
+      {verifyMutation.isPending && !verifyingRef && (
+        <div className="flex items-center gap-2 p-3 text-xs text-indigo-800 bg-indigo-50 border border-indigo-200 rounded-xl dark:bg-indigo-950/40 dark:border-indigo-900 dark:text-indigo-300">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          <span>Vérification de la confirmation de votre paiement en cours...</span>
         </div>
       )}
 

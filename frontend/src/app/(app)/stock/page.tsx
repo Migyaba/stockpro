@@ -19,6 +19,7 @@ export default function StockPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [newProductOpen, setNewProductOpen] = useState(false);
   const { warehouses, activeWarehouse } = useAuthStore();
+  const canCreateProduct = useAuthStore((s) => s.permissions.includes("products.create"));
   const [warehouseFilter, setWarehouseFilter] = useState<string>(
     activeWarehouse?.id ?? ""
   );
@@ -93,13 +94,15 @@ export default function StockPage() {
             Actualiser
           </button>
 
-          <button
-            onClick={() => setNewProductOpen(true)}
-            className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-600/30 transition active:scale-[0.98]"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Nouveau produit
-          </button>
+          {canCreateProduct && (
+            <button
+              onClick={() => setNewProductOpen(true)}
+              className="flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-3.5 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-600/30 transition active:scale-[0.98]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Nouveau produit
+            </button>
+          )}
         </div>
       </div>
 

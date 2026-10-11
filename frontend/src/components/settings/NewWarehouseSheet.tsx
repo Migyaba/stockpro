@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useCreateWarehouse } from "@/lib/hooks/useWarehouses";
 import type { CreateWarehousePayload } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface NewWarehouseSheetProps {
   open: boolean;
@@ -86,9 +87,7 @@ export function NewWarehouseSheet({
       onOpenChange(false);
       onSuccess?.();
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Erreur lors de la création du dépôt."
-      );
+      setError(getApiErrorMessage(err, "Erreur lors de la création du dépôt."));
     }
   };
 

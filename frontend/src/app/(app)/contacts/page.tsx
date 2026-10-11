@@ -24,11 +24,14 @@ import { NewSupplierSheet } from "@/components/contacts/NewSupplierSheet";
 import { CustomerDetailSheet } from "@/components/contacts/CustomerDetailSheet";
 import { SupplierDetailSheet } from "@/components/contacts/SupplierDetailSheet";
 import type { Customer, Supplier } from "@/lib/types/api";
+import { useAuthStore } from "@/lib/stores/authStore";
 
 type TabType = "customers" | "suppliers";
 
 export default function ContactsPage() {
   const [activeTab, setActiveTab] = useState<TabType>("customers");
+  // Les fournisseurs relèvent des achats : invisibles pour le Staff.
+  const canSeeSuppliers = useAuthStore((s) => s.permissions.includes("purchases.view"));
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState<string>("ALL");
 
@@ -195,29 +198,31 @@ export default function ContactsPage() {
             </span>
           </button>
 
-          <button
-            onClick={() => {
-              setActiveTab("suppliers");
-              setSearchQuery("");
-            }}
-            className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-              activeTab === "suppliers"
-                ? "bg-indigo-600 text-white shadow-xs"
-                : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
-            }`}
-          >
-            <Truck className="h-4 w-4" />
-            <span>Fournisseurs</span>
-            <span
-              className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] ${
+          {canSeeSuppliers && (
+            <button
+              onClick={() => {
+                setActiveTab("suppliers");
+                setSearchQuery("");
+              }}
+              className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
                 activeTab === "suppliers"
-                  ? "bg-indigo-500 text-white"
-                  : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                  ? "bg-indigo-600 text-white shadow-xs"
+                  : "text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-zinc-800"
               }`}
             >
-              {totalSuppliers}
-            </span>
-          </button>
+              <Truck className="h-4 w-4" />
+              <span>Fournisseurs</span>
+              <span
+                className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] ${
+                  activeTab === "suppliers"
+                    ? "bg-indigo-500 text-white"
+                    : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                }`}
+              >
+                {totalSuppliers}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Search & City Filter */}

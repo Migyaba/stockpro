@@ -1,18 +1,11 @@
-import apiClient from "@/lib/api/client";
+import apiClient, { fetchAllPages } from "@/lib/api/client";
 import type {
   Warehouse,
-  PaginatedResponse,
   CreateWarehousePayload,
 } from "@/lib/types/api";
 
 export async function fetchWarehouses(): Promise<Warehouse[]> {
-  const { data } = await apiClient.get<
-    PaginatedResponse<Warehouse> | Warehouse[]
-  >("/warehouses/?page_size=100");
-
-  if (Array.isArray(data)) return data;
-  if ("results" in data && Array.isArray(data.results)) return data.results;
-  return [];
+  return fetchAllPages<Warehouse>("/warehouses/");
 }
 
 export async function createWarehouse(

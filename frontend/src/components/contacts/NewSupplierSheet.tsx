@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useCreateSupplier } from "@/lib/hooks/useSuppliers";
 import type { CreateSupplierPayload } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface NewSupplierSheetProps {
   open: boolean;
@@ -70,9 +71,7 @@ export function NewSupplierSheet({
       onOpenChange(false);
       onSuccess?.();
     } catch (err: unknown) {
-      setError(
-        err instanceof Error ? err.message : "Erreur lors de l'enregistrement du fournisseur."
-      );
+      setError(getApiErrorMessage(err, "Erreur lors de l'enregistrement du fournisseur."));
     }
   };
 

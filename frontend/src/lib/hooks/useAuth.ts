@@ -54,6 +54,12 @@ export function useBootstrap() {
   };
 }
 
+// N'accepte que des chemins internes (« /ventes »), jamais « //site.com » ni une URL absolue.
+function safeRedirect(target?: string | null): string {
+  if (!target || !target.startsWith("/") || target.startsWith("//")) return "/dashboard";
+  return target;
+}
+
 // ─── Login mutation ────────────────────────────────────────────────────────
 export function useLogin() {
   const { setTokens } = useAuthStore();
@@ -61,11 +67,12 @@ export function useLogin() {
   const router = useRouter();
 
   return useMutation({
-    mutationFn: (payload: LoginPayload) => login(payload),
-    onSuccess: (tokens) => {
+    mutationFn: ({ email, password }: LoginPayload & { redirectTo?: string }) =>
+      login({ email, password }),
+    onSuccess: (tokens, { redirectTo }) => {
       setTokens(tokens.access, tokens.refresh);
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      router.push("/dashboard");
+      router.push(safeRedirect(redirectTo));
     },
   });
 }

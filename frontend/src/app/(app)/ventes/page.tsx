@@ -18,10 +18,19 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { formatFCFA, formatDate, cn } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { useSales, useCompleteSale, useCancelSale } from "@/lib/hooks/useSales";
+import {
+  useSales,
+  useSalesSummary,
+  useCompleteSale,
+  useCancelSale,
+} from "@/lib/hooks/useSales";
+import { Pagination } from "@/components/ui/Pagination";
 import { NewSaleSheet } from "@/components/sales/NewSaleSheet";
 import { SaleDetailSheet } from "@/components/sales/SaleDetailSheet";
 import type { Sale, SaleStatus } from "@/lib/types/api";
+import { toast } from "@/lib/stores/toastStore";
+
+const PAGE_SIZE = 25;
 
 export default function VentesPage() {
   const { canCancelSale } = useAuthStore();
@@ -30,33 +39,54 @@ export default function VentesPage() {
   const [newSaleOpen, setNewSaleOpen] = useState(false);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
+  const [page, setPage] = useState(1);
+
   const { data, isLoading } = useSales({
     status: statusFilter,
     search: searchTerm,
+    page,
+    page_size: PAGE_SIZE,
   });
+  // Indicateurs sur toutes les ventes (et non sur la seule page affichée).
+  const { data: summary } = useSalesSummary({ search: searchTerm });
+
+  function changeStatus(status: SaleStatus | "") {
+    setStatusFilter(status);
+    setPage(1);
+  }
+
+  function changeSearch(value: string) {
+    setSearchTerm(value);
+    setPage(1);
+  }
 
   const completeMutation = useCompleteSale();
   const cancelMutation = useCancelSale();
 
   const sales = data?.results ?? [];
 
-  // Metrics computation
-  const totalSalesAmount = sales
-    .filter((s) => s.status === "COMPLETED")
-    .reduce((acc, s) => acc + s.total, 0);
-
-  const completedCount = sales.filter((s) => s.status === "COMPLETED").length;
-  const draftCount = sales.filter((s) => s.status === "DRAFT").length;
-  const averageTicket =
-    completedCount > 0 ? Math.round(totalSalesAmount / completedCount) : 0;
+  const totalSalesAmount = summary?.completed_total ?? 0;
+  const completedCount = summary?.completed_count ?? 0;
+  const draftCount = summary?.draft_count ?? 0;
+  const averageTicket = summary?.average_ticket ?? 0;
 
   async function handleQuickComplete(saleId: string) {
-    await completeMutation.mutateAsync(saleId);
+    try {
+      await completeMutation.mutateAsync(saleId);
+      toast.success("Vente validée, stock mis à jour.");
+    } catch (err) {
+      toast.apiError(err, "Impossible de valider la vente.");
+    }
   }
 
   async function handleQuickCancel(saleId: string) {
     if (confirm("Êtes-vous sûr de vouloir annuler cette vente ? Le stock sera réintégré.")) {
-      await cancelMutation.mutateAsync(saleId);
+      try {
+        await cancelMutation.mutateAsync(saleId);
+        toast.success("Vente annulée, stock réintégré.");
+      } catch (err) {
+        toast.apiError(err, "Impossible d'annuler la vente.");
+      }
     }
   }
 
@@ -161,7 +191,7 @@ export default function VentesPage() {
         <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={() => setStatusFilter("")}
+            onClick={() => changeStatus("")}
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               statusFilter === ""
@@ -169,11 +199,11 @@ export default function VentesPage() {
                 : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             )}
           >
-            Toutes ({sales.length})
+            Toutes ({summary?.count ?? 0})
           </button>
           <button
             type="button"
-            onClick={() => setStatusFilter("COMPLETED")}
+            onClick={() => changeStatus("COMPLETED")}
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               statusFilter === "COMPLETED"
@@ -181,11 +211,11 @@ export default function VentesPage() {
                 : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             )}
           >
-            Validées
+            Validées ({completedCount})
           </button>
           <button
             type="button"
-            onClick={() => setStatusFilter("DRAFT")}
+            onClick={() => changeStatus("DRAFT")}
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               statusFilter === "DRAFT"
@@ -193,11 +223,11 @@ export default function VentesPage() {
                 : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             )}
           >
-            Brouillons
+            Brouillons ({draftCount})
           </button>
           <button
             type="button"
-            onClick={() => setStatusFilter("CANCELLED")}
+            onClick={() => changeStatus("CANCELLED")}
             className={cn(
               "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
               statusFilter === "CANCELLED"
@@ -205,7 +235,7 @@ export default function VentesPage() {
                 : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
             )}
           >
-            Annulées
+            Annulées ({summary?.cancelled_count ?? 0})
           </button>
         </div>
 
@@ -216,7 +246,7 @@ export default function VentesPage() {
             type="text"
             placeholder="Rechercher référence, client..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => changeSearch(e.target.value)}
             className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 py-1.5 pl-9 pr-3 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none"
           />
         </div>
@@ -372,6 +402,12 @@ export default function VentesPage() {
             </tbody>
           </table>
         </div>
+        <Pagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={data?.count ?? 0}
+          onPageChange={setPage}
+        />
       </div>
 
       {/* New Sale Slide-Over */}

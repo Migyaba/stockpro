@@ -18,10 +18,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { formatFCFA, formatDate, cn } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { usePurchases, useConfirmPurchase } from "@/lib/hooks/usePurchases";
+import {
+  usePurchases,
+  usePurchasesSummary,
+  useConfirmPurchase,
+} from "@/lib/hooks/usePurchases";
+import { Pagination } from "@/components/ui/Pagination";
 import { NewPurchaseSheet } from "@/components/purchases/NewPurchaseSheet";
 import { PurchaseDetailSheet } from "@/components/purchases/PurchaseDetailSheet";
 import type { Purchase, PurchaseStatus } from "@/lib/types/api";
+import { toast } from "@/lib/stores/toastStore";
 
 const STATUS_MAP: Record<
   PurchaseStatus,
@@ -54,6 +60,8 @@ const STATUS_MAP: Record<
   },
 };
 
+const PAGE_SIZE = 25;
+
 export default function AchatsPage() {
   const { warehouses, activeWarehouse } = useAuthStore();
   const [statusFilter, setStatusFilter] = useState<PurchaseStatus | "">("");
@@ -66,26 +74,29 @@ export default function AchatsPage() {
   const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
+  const [page, setPage] = useState(1);
+
   const { data, isLoading, refetch } = usePurchases({
     status: statusFilter,
     warehouse: warehouseFilter || undefined,
     search: searchTerm,
+    page,
+    page_size: PAGE_SIZE,
+  });
+  // Indicateurs sur toutes les commandes (et non sur la seule page affichée).
+  const { data: summary } = usePurchasesSummary({
+    search: searchTerm,
+    warehouse: warehouseFilter || undefined,
   });
 
   const confirmMutation = useConfirmPurchase();
 
   const purchases = data?.results ?? [];
 
-  // Metrics
-  const totalPurchasesAmount = purchases
-    .filter((p) => p.status === "RECEIVED" || p.status === "PARTIALLY_RECEIVED")
-    .reduce((acc, p) => acc + p.total, 0);
-
-  const pendingCount = purchases.filter(
-    (p) => p.status === "CONFIRMED" || p.status === "PARTIALLY_RECEIVED"
-  ).length;
-  const receivedCount = purchases.filter((p) => p.status === "RECEIVED").length;
-  const draftCount = purchases.filter((p) => p.status === "DRAFT").length;
+  const totalPurchasesAmount = summary?.received_total ?? 0;
+  const pendingCount = summary?.pending_count ?? 0;
+  const receivedCount = summary?.received_count ?? 0;
+  const draftCount = summary?.draft_count ?? 0;
 
   function handleRowClick(purchase: Purchase) {
     setSelectedPurchase(purchase);
@@ -94,7 +105,12 @@ export default function AchatsPage() {
 
   async function handleQuickConfirm(e: React.MouseEvent, id: string) {
     e.stopPropagation();
-    await confirmMutation.mutateAsync(id);
+    try {
+      await confirmMutation.mutateAsync(id);
+      toast.success("Commande confirmée.");
+    } catch (err) {
+      toast.apiError(err, "Impossible de confirmer la commande.");
+    }
   }
 
   return (
@@ -204,7 +220,10 @@ export default function AchatsPage() {
             type="text"
             placeholder="Rechercher par référence, fournisseur..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setPage(1);
+            }}
             className="w-full pl-10 pr-4 py-2 text-sm rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:border-indigo-500 transition"
           />
         </div>
@@ -214,7 +233,10 @@ export default function AchatsPage() {
           {warehouses.length > 1 && (
             <select
               value={warehouseFilter}
-              onChange={(e) => setWarehouseFilter(e.target.value)}
+              onChange={(e) => {
+                setWarehouseFilter(e.target.value);
+                setPage(1);
+              }}
               className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             >
               <option value="">Tous les dépôts</option>
@@ -229,7 +251,10 @@ export default function AchatsPage() {
           {/* Status filter tabs */}
           <div className="flex items-center gap-1 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-1">
             <button
-              onClick={() => setStatusFilter("")}
+              onClick={() => {
+                setStatusFilter("");
+                setPage(1);
+              }}
               className={cn(
                 "px-2.5 py-1 text-xs font-medium rounded-lg transition",
                 statusFilter === ""
@@ -243,7 +268,10 @@ export default function AchatsPage() {
               (st) => (
                 <button
                   key={st}
-                  onClick={() => setStatusFilter(st)}
+                  onClick={() => {
+                    setStatusFilter(st);
+                    setPage(1);
+                  }}
                   className={cn(
                     "px-2.5 py-1 text-xs font-medium rounded-lg transition",
                     statusFilter === st
@@ -396,6 +424,12 @@ export default function AchatsPage() {
             </tbody>
           </table>
         </div>
+        <Pagination
+          page={page}
+          pageSize={PAGE_SIZE}
+          total={data?.count ?? 0}
+          onPageChange={setPage}
+        />
       </div>
 
       {/* Sheets */}

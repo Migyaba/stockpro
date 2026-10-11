@@ -6,10 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 import { useLogin } from "@/lib/hooks/useAuth";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 function LoginForm() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("next") ?? "/dashboard";
+  const sessionExpired = searchParams.get("expired") === "1";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -19,7 +21,7 @@ function LoginForm() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    login.mutate({ email, password });
+    login.mutate({ email, password, redirectTo });
   }
 
   return (
@@ -35,13 +37,16 @@ function LoginForm() {
       {/* Form */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-5 px-8 py-6">
         {/* Error banner */}
+        {sessionExpired && !login.isError && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-amber-800/50 bg-amber-950/50 px-4 py-3 text-sm text-amber-300">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>Votre session a expiré. Reconnectez-vous pour continuer.</span>
+          </div>
+        )}
         {login.isError && (
           <div className="flex items-start gap-2.5 rounded-lg border border-rose-800/50 bg-rose-950/50 px-4 py-3 text-sm text-rose-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              {(login.error as { response?: { data?: { detail?: string } } })?.response?.data
-                ?.detail ?? "Email ou mot de passe incorrect."}
-            </span>
+            <span>{getApiErrorMessage(login.error, "Email ou mot de passe incorrect.")}</span>
           </div>
         )}
 

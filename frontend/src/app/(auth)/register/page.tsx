@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 import { useRegister } from "@/lib/hooks/useAuth";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 // ─── Step definitions ──────────────────────────────────────────────────────
 type Step = "account" | "organisation" | "depot";
@@ -113,10 +114,10 @@ export default function RegisterPage() {
   }
 
   // ─── Error helper ─────────────────────────────────────────────────────────
-  type ApiError = { response?: { data?: Record<string, string | string[]> } };
-  const apiErrors =
-    (register.error as ApiError | null)?.response?.data ?? {};
-  const firstError = Object.values(apiErrors).flat()[0] as string | undefined;
+  // Le backend renvoie { error: { code, message } } : un objet affiché tel quel ferait planter React.
+  const firstError = register.error
+    ? getApiErrorMessage(register.error, "Impossible de créer votre espace. Réessayez.")
+    : undefined;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80 shadow-2xl backdrop-blur-sm">

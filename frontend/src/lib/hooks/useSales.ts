@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchSales,
   fetchSale,
+  fetchSalesSummary,
   createSale,
   completeSale,
   cancelSale,
@@ -19,6 +20,15 @@ export function useSales(filters: SaleFilters = {}) {
   return useQuery({
     queryKey: [SALES_QUERY_KEY, filters],
     queryFn: () => fetchSales(filters),
+    staleTime: 30_000,
+  });
+}
+
+// Clé sous « sales » : invalidée avec les listes après chaque création/validation.
+export function useSalesSummary(filters: { search?: string; warehouse?: string } = {}) {
+  return useQuery({
+    queryKey: [SALES_QUERY_KEY, "summary", filters],
+    queryFn: () => fetchSalesSummary(filters),
     staleTime: 30_000,
   });
 }

@@ -24,6 +24,7 @@ import { useSuppliers } from "@/lib/hooks/useSuppliers";
 import { useProducts } from "@/lib/hooks/useProducts";
 import { useCreatePurchase } from "@/lib/hooks/usePurchases";
 import type { CreatePurchasePayload } from "@/lib/types/api";
+import { getApiErrorMessage } from "@/lib/api/client";
 
 interface NewPurchaseSheetProps {
   open: boolean;
@@ -178,11 +179,7 @@ export function NewPurchaseSheet({ open, onOpenChange }: NewPurchaseSheetProps) 
       ]);
       setExpectedDate("");
     } catch (err: unknown) {
-      const errorObj = err as { response?: { data?: { detail?: string } } };
-      setErrorMsg(
-        errorObj.response?.data?.detail ??
-          "Une erreur est survenue lors de la création de la commande d'achat."
-      );
+      setErrorMsg(getApiErrorMessage(err, "Une erreur est survenue lors de la création de la commande d'achat."));
     }
   }
 

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { formatFCFA, cn } from "@/lib/utils/format";
 import { getApiErrorMessage } from "@/lib/api/client";
+import { computeLineAmounts } from "@/lib/utils/pricing";
 import { useAuthStore } from "@/lib/stores/authStore";
 import {
   useCustomers,
@@ -43,7 +44,7 @@ interface FormItem {
 }
 
 export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
-  const { activeWarehouse, warehouses } = useAuthStore();
+  const { activeWarehouse, warehouses, organization } = useAuthStore();
   const { data: customers = [] } = useCustomers();
   const { data: products = [] } = useSaleProducts();
 
@@ -123,7 +124,15 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
     (acc, item) => acc + (item.discount || 0),
     0
   );
-  const grandTotal = Math.max(0, subtotal - totalDiscount);
+  // Même calcul que le serveur (TVA de l'organisation), pour un total sans surprise.
+  const lineAmounts = items.map((item) =>
+    computeLineAmounts(item.quantity || 0, item.unit_price || 0, item.discount || 0, organization)
+  );
+  const taxTotal = lineAmounts.reduce((acc, line) => acc + line.tax, 0);
+  const grandTotal = Math.max(0, lineAmounts.reduce((acc, line) => acc + line.total, 0));
+  const taxEnabled = !!organization?.tax_enabled && (organization?.tax_rate_bps ?? 0) > 0;
+  const pricesIncludeTax = organization?.prices_include_tax ?? true;
+  const taxRateLabel = `${((organization?.tax_rate_bps ?? 0) / 100).toLocaleString("fr-FR")} %`;
 
   async function handleSubmit(validateImmediately: boolean) {
     setErrorMsg(null);
@@ -324,7 +333,7 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
           {/* Totals Summary */}
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60 p-4">
             <div className="flex justify-between py-1 text-xs text-zinc-500">
-              <span>Sous-total HT</span>
+              <span>Sous-total</span>
               <span className="tabular-nums font-medium text-zinc-700 dark:text-zinc-300">
                 {formatFCFA(subtotal)}
               </span>
@@ -335,9 +344,20 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
                 <span className="tabular-nums font-medium">-{formatFCFA(totalDiscount)}</span>
               </div>
             )}
+            {taxEnabled && (
+              <div className="flex justify-between py-1 text-xs text-zinc-500">
+                <span>
+                  {pricesIncludeTax ? "Dont TVA" : "TVA"} ({taxRateLabel})
+                </span>
+                <span className="tabular-nums font-medium">
+                  {pricesIncludeTax ? "" : "+"}
+                  {formatFCFA(taxTotal)}
+                </span>
+              </div>
+            )}
             <div className="mt-2 flex items-baseline justify-between border-t border-zinc-200 dark:border-zinc-800 pt-3">
               <span className="text-sm font-semibold text-zinc-900 dark:text-white">
-                Total Net TTC
+                {taxEnabled ? "Total TTC" : "Total"}
               </span>
               <span className="text-xl font-bold tracking-tight text-indigo-600 dark:text-indigo-400 tabular-nums">
                 {formatFCFA(grandTotal)}

@@ -5,6 +5,7 @@ import type {
   PaginatedResponse,
   CreatePurchasePayload,
   ReceivePurchasePayload,
+  PurchasesSummary,
 } from "@/lib/types/api";
 
 export interface PurchaseFilters {
@@ -26,6 +27,19 @@ export async function fetchPurchases(
   });
   const { data } = await apiClient.get<PaginatedResponse<Purchase>>(
     `/purchases/?${params.toString()}`
+  );
+  return data;
+}
+
+export async function fetchPurchasesSummary(
+  filters: Pick<PurchaseFilters, "search" | "warehouse" | "supplier"> = {}
+): Promise<PurchasesSummary> {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([k, v]) => {
+    if (v) params.set(k, String(v));
+  });
+  const { data } = await apiClient.get<PurchasesSummary>(
+    `/purchases/summary/?${params.toString()}`
   );
   return data;
 }

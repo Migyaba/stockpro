@@ -26,6 +26,17 @@ let waitQueue: Array<{
   reject: (err: unknown) => void;
 }> = [];
 
+// Session expirée ou révoquée : on vide le store et on renvoie vers le login
+// (rechargement complet pour purger aussi le cache React Query).
+function endSession() {
+  useAuthStore.getState().logout();
+  if (typeof window === "undefined") return;
+  const { pathname, search } = window.location;
+  if (pathname.startsWith("/login")) return;
+  const next = encodeURIComponent(`${pathname}${search}`);
+  window.location.assign(`/login?next=${next}&expired=1`);
+}
+
 function processQueue(error: unknown, token: string | null) {
   waitQueue.forEach((p) => (error ? p.reject(error) : p.resolve(token!)));
   waitQueue = [];
@@ -55,7 +66,8 @@ apiClient.interceptors.response.use(
 
     const refreshToken = useAuthStore.getState().refreshToken;
     if (!refreshToken) {
-      useAuthStore.getState().logout();
+      isRefreshing = false;
+      endSession();
       return Promise.reject(error);
     }
 
@@ -70,7 +82,7 @@ apiClient.interceptors.response.use(
       return apiClient(original!);
     } catch (refreshError) {
       processQueue(refreshError, null);
-      useAuthStore.getState().logout();
+      endSession();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
@@ -87,6 +99,26 @@ export function idempotencyHeaders(): Record<string, string> {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return { "Idempotency-Key": key };
+}
+
+// Charge toutes les pages d'une liste paginée (listes déroulantes : produits,
+// clients, fournisseurs…). Le backend plafonne page_size à 100.
+export async function fetchAllPages<T>(
+  path: string,
+  params: Record<string, string> = {}
+): Promise<T[]> {
+  const results: T[] = [];
+  let page = 1;
+  for (;;) {
+    const query = new URLSearchParams({ ...params, page: String(page), page_size: "100" });
+    const { data } = await apiClient.get<{ results: T[]; next: string | null } | T[]>(
+      `${path}?${query.toString()}`
+    );
+    if (Array.isArray(data)) return data;
+    results.push(...data.results);
+    if (!data.next) return results;
+    page += 1;
+  }
 }
 
 // Le backend renvoie { error: { code, message } } ; on remonte ce message métier.

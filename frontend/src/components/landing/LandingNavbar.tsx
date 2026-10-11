@@ -4,15 +4,15 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Menu, X, ArrowRight, ShieldCheck, LayoutDashboard } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { useHydrated } from "@/lib/hooks/useHydrated";
 
 export function LandingNavbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { accessToken, user } = useAuthStore();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
 
   useEffect(() => {
-    setMounted(true);
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
     };

@@ -24,6 +24,7 @@ import { formatFCFA, formatDate } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useCompleteSale, useCancelSale } from "@/lib/hooks/useSales";
 import type { Sale } from "@/lib/types/api";
+import { toast } from "@/lib/stores/toastStore";
 
 interface SaleDetailSheetProps {
   sale: Sale | null;
@@ -48,8 +49,13 @@ export function SaleDetailSheet({
 
   async function handleComplete() {
     if (!sale) return;
-    await completeMutation.mutateAsync(sale.id);
-    onOpenChange(false);
+    try {
+      await completeMutation.mutateAsync(sale.id);
+      toast.success(`Vente ${sale.reference} validée.`);
+      onOpenChange(false);
+    } catch (err) {
+      toast.apiError(err, "Impossible de valider la vente.");
+    }
   }
 
   async function handleCancel() {
@@ -61,8 +67,13 @@ export function SaleDetailSheet({
     ) {
       return;
     }
-    await cancelMutation.mutateAsync(sale.id);
-    onOpenChange(false);
+    try {
+      await cancelMutation.mutateAsync(sale.id);
+      toast.success(`Vente ${sale.reference} annulée, stock réintégré.`);
+      onOpenChange(false);
+    } catch (err) {
+      toast.apiError(err, "Impossible d'annuler la vente.");
+    }
   }
 
   function handlePrint() {

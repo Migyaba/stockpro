@@ -152,6 +152,23 @@ class LogoutView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _organization_payload(org):
+    return {
+        "id": str(org.id),
+        "name": org.name,
+        "slug": org.slug,
+        "country": org.country,
+        "currency": org.currency,
+        "currency_exponent": org.currency_exponent,
+        "timezone": org.timezone,
+        "status": org.status,
+        "tax_enabled": org.tax_enabled,
+        "tax_rate_bps": org.tax_rate_bps,
+        "prices_include_tax": org.prices_include_tax,
+        "max_discount_percent_manager": org.max_discount_percent_manager,
+    }
+
+
 class MeView(APIView):
     serializer_class = MeSerializer
 
@@ -173,19 +190,7 @@ class MeView(APIView):
                     "role": m.role,
                     "permissions": sorted(ROLE_PERMISSIONS.get(m.role, [])),
                 },
-                "organization": {
-                    "id": str(org.id),
-                    "name": org.name,
-                    "slug": org.slug,
-                    "country": org.country,
-                    "currency": org.currency,
-                    "currency_exponent": org.currency_exponent,
-                    "timezone": org.timezone,
-                    "status": org.status,
-                    "tax_enabled": org.tax_enabled,
-                    "tax_rate_bps": org.tax_rate_bps,
-                    "prices_include_tax": org.prices_include_tax,
-                },
+                "organization": _organization_payload(org),
             }
         )
 
@@ -199,11 +204,8 @@ class MyMembershipView(APIView):
                 "role": m.role,
                 "is_active": m.is_active,
                 "permissions": sorted(ROLE_PERMISSIONS.get(m.role, [])),
-                "organization": {
-                    "id": str(request.organization.id),
-                    "name": request.organization.name,
-                    "currency": request.organization.currency,
-                },
+                "warehouse_ids": [str(i) for i in m.warehouse_ids()],
+                "organization": _organization_payload(request.organization),
             }
         )
 

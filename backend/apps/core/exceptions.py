@@ -2,7 +2,8 @@ import logging
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError
-from rest_framework.exceptions import APIException, NotFound
+from rest_framework.exceptions import APIException, NotFound, ValidationError
+from rest_framework.settings import api_settings
 from rest_framework.views import exception_handler
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,9 @@ def api_exception_handler(exc, context):
         if isinstance(codes, str):
             code = codes
     payload = {"error": {"code": code, "message": _message(response.data)}}
+    if isinstance(exc, ValidationError) and isinstance(response.data, dict):
+        # Détail par champ pour les formulaires (ex. {"sku": ["…"]}).
+        payload["error"]["fields"] = response.data
     extra = getattr(exc, "extra", None)
     if extra:
         payload["error"]["details"] = extra
@@ -105,13 +109,17 @@ def api_exception_handler(exc, context):
 
 
 def _message(data):
+    """Message lisible : « Identifiants incorrects. », « sku : Un produit actif… »."""
     if isinstance(data, dict):
         if "detail" in data:
             return str(data["detail"])
         parts = []
         for key, value in data.items():
-            parts.append(f"{key}: {value}")
+            text = _message(value)
+            if not text:
+                continue
+            parts.append(text if key == api_settings.NON_FIELD_ERRORS_KEY else f"{key} : {text}")
         return " ".join(parts)
     if isinstance(data, list):
-        return " ".join(str(item) for item in data)
+        return " ".join(text for text in (_message(item) for item in data) if text)
     return str(data)

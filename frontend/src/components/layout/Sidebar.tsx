@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -17,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
+import { requiredPermission } from "@/lib/permissions";
 
 interface NavItem {
   label: string;
@@ -45,7 +45,11 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
-  const { organization } = useAuthStore();
+  const { organization, permissions } = useAuthStore();
+  const allowed = (item: NavItem) => {
+    const code = requiredPermission(item.href);
+    return !code || permissions.includes(code);
+  };
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(`${href}/`);
@@ -89,7 +93,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Main nav */}
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {NAV_ITEMS.map((item) => (
+        {NAV_ITEMS.filter(allowed).map((item) => (
           <SidebarLink
             key={item.href}
             item={item}
@@ -101,7 +105,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Bottom nav */}
       <div className="flex flex-col gap-0.5 border-t border-zinc-200 p-2 dark:border-zinc-800">
-        {BOTTOM_ITEMS.map((item) => (
+        {BOTTOM_ITEMS.filter(allowed).map((item) => (
           <SidebarLink
             key={item.href}
             item={item}
