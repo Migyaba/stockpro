@@ -15,6 +15,8 @@ export interface AuthTokens {
 export interface LoginPayload {
   email: string;
   password: string;
+  /** Requis quand le compte appartient à plusieurs organisations. */
+  organization_id?: string;
 }
 
 export interface RegisterPayload {
@@ -93,7 +95,9 @@ export interface Warehouse {
 export interface Category {
   id: string;
   name: string;
-  slug: string;
+  parent: string | null;
+  is_active: boolean;
+  created_at: string;
 }
 
 export interface Product {
@@ -101,7 +105,9 @@ export interface Product {
   name: string;
   sku: string;
   barcode: string;
-  category: Category | null;
+  /** Identifiant de la catégorie (le nom est dans category_name). */
+  category: string | null;
+  category_name?: string | null;
   description: string;
   unit?: string;
   purchase_price: number;
@@ -109,6 +115,9 @@ export interface Product {
   minimum_stock: number;
   maximum_stock?: number;
   is_active: boolean;
+  /** Stock total tous dépôts confondus (calculé par l'API). */
+  total_stock?: number;
+  image?: string | null;
   created_at: string;
   updated_at?: string;
 }
@@ -181,7 +190,7 @@ export interface CreateWarehousePayload {
 }
 
 export interface OrganizationMember {
-  id: number;
+  id: string;
   user: UserProfile;
   role: Role;
   is_active: boolean;
@@ -192,6 +201,26 @@ export interface OrganizationMember {
 export interface InviteMemberPayload {
   email: string;
   role: Role;
+  warehouse_ids?: string[];
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: Role;
+  warehouse_ids: string[];
+  invited_by_name?: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  created_at: string;
+  /** Présent uniquement dans la réponse de création (le jeton n'est pas stocké en clair). */
+  invitation_url?: string;
+}
+
+export interface UpdateMemberPayload {
+  role?: Role;
+  is_active?: boolean;
+  /** Liste vide = accès à tous les dépôts. */
   warehouse_ids?: string[];
 }
 
@@ -432,4 +461,35 @@ export interface PurchasesSummary {
   received_count: number;
   cancelled_count: number;
   received_total: number;
+}
+
+// ─── Transferts entre dépôts ────────────────────────────────────────────────
+export type TransferStatus = "DRAFT" | "COMPLETED" | "CANCELLED";
+
+export interface TransferItem {
+  id: string;
+  product: string;
+  product_name: string;
+  quantity: number;
+}
+
+export interface Transfer {
+  id: string;
+  reference: string;
+  source: string;
+  source_name: string;
+  destination: string;
+  destination_name: string;
+  status: TransferStatus;
+  notes: string;
+  items: TransferItem[];
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface CreateTransferPayload {
+  source: string;
+  destination: string;
+  notes?: string;
+  items: { product: string; quantity: number }[];
 }

@@ -98,6 +98,12 @@ class TransferItemSerializer(TenantScopedSerializerMixin, serializers.ModelSeria
         read_only_fields = ["id"]
         extra_kwargs = {"quantity": {"min_value": 1}}
 
+    def validate_product(self, product):
+        # §19.2 : un produit désactivé ne peut plus entrer dans une nouvelle opération.
+        if not product.is_active:
+            raise serializers.ValidationError(f"Le produit {product.name} est désactivé.")
+        return product
+
 
 class TransferSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     items = TransferItemSerializer(many=True, allow_empty=False)

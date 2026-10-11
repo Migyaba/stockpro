@@ -4,18 +4,22 @@ import {
   updateOrganizationProfile,
   fetchOrganizationMembers,
   inviteOrganizationMember,
-  updateMemberRole,
   toggleMemberActive,
+  fetchPendingInvitations,
+  revokeInvitation,
+  updateMember,
 } from "@/lib/api/organization";
 import type {
   Organization,
   InviteMemberPayload,
   OrganizationMember,
+  UpdateMemberPayload,
 } from "@/lib/types/api";
 
 export const orgQueryKeys = {
   profile: ["organization", "profile"] as const,
   members: ["organization", "members"] as const,
+  invitations: ["organization", "invitations"] as const,
 };
 
 export function useOrganizationProfile() {
@@ -52,24 +56,7 @@ export function useInviteMember() {
   return useMutation({
     mutationFn: (payload: InviteMemberPayload) => inviteOrganizationMember(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: orgQueryKeys.members });
-    },
-  });
-}
-
-export function useUpdateMemberRole() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      id,
-      role,
-    }: {
-      id: number;
-      role: OrganizationMember["role"];
-    }) => updateMemberRole(id, role),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: orgQueryKeys.members });
+      queryClient.invalidateQueries({ queryKey: orgQueryKeys.invitations });
     },
   });
 }
@@ -78,10 +65,36 @@ export function useToggleMemberActive() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ id, is_active }: { id: number; is_active: boolean }) =>
+    mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) =>
       toggleMemberActive(id, is_active),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: orgQueryKeys.members });
     },
+  });
+}
+
+export function usePendingInvitations(enabled = true) {
+  return useQuery({
+    queryKey: orgQueryKeys.invitations,
+    queryFn: fetchPendingInvitations,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useRevokeInvitation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => revokeInvitation(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: orgQueryKeys.invitations }),
+  });
+}
+
+export function useUpdateMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateMemberPayload }) =>
+      updateMember(id, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: orgQueryKeys.members }),
   });
 }

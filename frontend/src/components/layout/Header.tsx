@@ -2,6 +2,7 @@
 
 import { useTheme } from "next-themes";
 import {
+  Menu,
   Sun,
   Moon,
   Bell,
@@ -45,9 +46,11 @@ const ROLE_BADGE_VARIANT: Record<
 
 interface HeaderProps {
   pageTitle?: string;
+  /** Ouvre le menu de navigation sur mobile (la sidebar y est masquée). */
+  onMenuClick?: () => void;
 }
 
-export function Header({ pageTitle }: HeaderProps) {
+export function Header({ pageTitle, onMenuClick }: HeaderProps) {
   const { theme, setTheme } = useTheme();
   const {
     user,
@@ -70,8 +73,18 @@ export function Header({ pageTitle }: HeaderProps) {
 
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 dark:border-zinc-800 dark:bg-zinc-900">
-      {/* Left: page title */}
+      {/* Left: menu mobile + page title */}
       <div className="flex items-center gap-3">
+        {onMenuClick && (
+          <button
+            type="button"
+            onClick={onMenuClick}
+            aria-label="Ouvrir le menu"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 md:hidden dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
         {pageTitle && (
           <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
             {pageTitle}
@@ -82,7 +95,7 @@ export function Header({ pageTitle }: HeaderProps) {
       {/* Center: Tenant + warehouse selector */}
       <div className="flex items-center gap-2">
         {organization && (
-          <div className="flex items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-1.5 dark:border-zinc-700 dark:bg-zinc-800">
+          <div className="hidden items-center gap-1.5 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-1.5 sm:flex dark:border-zinc-700 dark:bg-zinc-800">
             <Building2 className="h-3.5 w-3.5 text-zinc-500 dark:text-zinc-400" />
             <span className="max-w-[120px] truncate text-xs font-medium text-zinc-700 dark:text-zinc-300">
               {organization.name}

@@ -19,7 +19,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.accounts.models import Invitation, Membership, Role, User
+from apps.accounts.models import Invitation, Membership, MembershipWarehouse, Role, User
 from apps.accounts.serializers import (
     AcceptInvitationSerializer,
     ChangePasswordSerializer,
@@ -31,6 +31,7 @@ from apps.accounts.serializers import (
     PasswordResetSerializer,
     RefreshSerializer,
     RegisterSerializer,
+    invitation_url,
 )
 from apps.accounts.tokens import issue_tokens
 from apps.audit.services import AuditAction, write_audit
@@ -330,26 +331,87 @@ class MembershipViewSet(TenantViewSet):
 
 class InvitationViewSet(TenantViewSet):
     serializer_class = InvitationSerializer
-    queryset = Invitation.objects.all()
-    http_method_names = ["get", "post", "head", "options"]
+    queryset = Invitation.objects.select_related("invited_by").prefetch_related("warehouses")
+    http_method_names = ["get", "post", "delete", "head", "options"]
 
     def get_permissions(self):
-        perm = "users.invite" if self.action == "create" else "users.view"
+        perm = "users.view" if self.action in ("list", "retrieve") else "users.invite"
         return [require_permission(perm)()]
 
-    def create(self, request, *args, **kwargs):
-        if not request.user.email_verified_at and not request.user.is_superuser:
-            # Pilote : on autorise l'invitation, un rappel pourra être ajouté.
-            pass
-        return super().create(request, *args, **kwargs)
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if self.request.query_params.get("status") == "pending":
+            qs = qs.filter(accepted_at__isnull=True, expires_at__gt=timezone.now())
+        return qs
 
     def perform_create(self, serializer):
         invitation = serializer.save()
+        _send_invitation_email(invitation, self.request.user)
         write_audit(
             self.request,
             action=AuditAction.CREATE,
             entity=invitation,
             extra={"email": invitation.email, "role": invitation.role},
+        )
+
+    def perform_destroy(self, instance):
+        if instance.accepted_at:
+            raise InvalidStateTransition("Cette invitation a déjà été acceptée.")
+        write_audit(self.request, action=AuditAction.DELETE, entity=instance, extra={"email": instance.email})
+        instance.delete()
+
+
+def _send_invitation_email(invitation, inviter):
+    try:
+        send_mail(
+            subject=f"STOCKPRO — Invitation à rejoindre {invitation.organization.name}",
+            message=(
+                "Bonjour,\n\n"
+                f"{inviter.full_name or inviter.email} vous invite à rejoindre "
+                f"« {invitation.organization.name} » sur STOCKPRO.\n\n"
+                f"Pour accepter, ouvrez ce lien (valable 7 jours) :\n{invitation_url(invitation.raw_token)}\n"
+            ),
+            from_email=None,
+            recipient_list=[invitation.email],
+        )
+    except Exception:
+        # Le lien reste partageable depuis l'interface (WhatsApp, SMS).
+        logger.exception("Échec d'envoi de l'email d'invitation.")
+
+
+def _find_invitation(raw_token, *, lock=False):
+    digest = hashlib.sha256((raw_token or "").encode()).hexdigest()
+    qs = Invitation.objects.select_related("organization")
+    if lock:
+        qs = qs.select_for_update()
+    invitation = qs.filter(token_hash=digest).first()
+    if invitation is None or invitation.accepted_at:
+        raise InvalidStateTransition("Cette invitation est invalide ou a déjà été utilisée.")
+    if invitation.expires_at < timezone.now():
+        raise InvalidStateTransition("Cette invitation a expiré. Demandez-en une nouvelle.")
+    if invitation.organization.status == "CANCELLED":
+        raise InvalidStateTransition("Cette organisation n'est plus active.")
+    return invitation
+
+
+class InvitationInfoView(APIView):
+    """Informations affichées sur la page d'acceptation (sans authentification)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_login"
+
+    def get(self, request):
+        invitation = _find_invitation(request.query_params.get("token"))
+        return Response(
+            {
+                "email": invitation.email,
+                "role": invitation.role,
+                "organization_name": invitation.organization.name,
+                "account_exists": User.objects.filter(email__iexact=invitation.email).exists(),
+                "expires_at": invitation.expires_at,
+            }
         )
 
 
@@ -360,54 +422,44 @@ class AcceptInvitationView(APIView):
     throttle_scope = "auth_login"
     serializer_class = AcceptInvitationSerializer
 
+    @transaction.atomic
     def post(self, request):
         serializer = AcceptInvitationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        raw = serializer.validated_data["token"]
-        digest = hashlib.sha256(raw.encode()).hexdigest()
-        try:
-            invitation = Invitation.objects.select_related("organization").get(
-                token_hash=digest, accepted_at__isnull=True
-            )
-        except Invitation.DoesNotExist:
-            return Response(
-                {"error": {"code": "invalid", "message": "Invitation invalide."}}, status=400
-            )
-        if invitation.expires_at < timezone.now():
-            return Response(
-                {"error": {"code": "invalid", "message": "Invitation expirée."}}, status=400
-            )
+        data = serializer.validated_data
+        invitation = _find_invitation(data["token"], lock=True)
         user = User.objects.filter(email__iexact=invitation.email).first()
-        if user is None:
-            password = serializer.validated_data.get("password")
-            first_name = serializer.validated_data.get("first_name")
-            last_name = serializer.validated_data.get("last_name")
-            if not password or not first_name or not last_name:
-                return Response(
-                    {
-                        "error": {
-                            "code": "invalid",
-                            "message": "Compte à créer : password, first_name et last_name requis.",
-                        }
-                    },
-                    status=400,
-                )
+        if user is not None:
+            # Compte existant : le détenteur du lien doit prouver qu'il en est le propriétaire.
+            if not user.is_active or not user.check_password(data["password"]):
+                raise InvalidStateTransition("Mot de passe incorrect pour ce compte.")
+        else:
+            if not data.get("first_name") or not data.get("last_name"):
+                raise InvalidStateTransition("Indiquez votre prénom et votre nom.")
+            try:
+                validate_password(data["password"])
+            except DjangoValidationError as exc:
+                raise InvalidStateTransition(" ".join(exc.messages)) from exc
             user = User.objects.create_user(
                 email=invitation.email,
-                password=password,
-                first_name=first_name,
-                last_name=last_name,
+                password=data["password"],
+                first_name=data["first_name"],
+                last_name=data["last_name"],
                 email_verified_at=timezone.now(),
             )
         if Membership.objects.filter(user=user, organization=invitation.organization).exists():
-            raise InvalidStateTransition("Cet utilisateur appartient déjà à l'organisation.")
+            raise InvalidStateTransition("Ce compte appartient déjà à cette organisation.")
         membership = Membership.objects.create(
             user=user,
             organization=invitation.organization,
             role=invitation.role,
             is_active=True,
         )
+        MembershipWarehouse.objects.bulk_create(
+            MembershipWarehouse(membership=membership, warehouse=w)
+            for w in invitation.warehouses.all()
+        )
         invitation.accepted_at = timezone.now()
-        invitation.save(update_fields=["accepted_at"])
+        invitation.save(update_fields=["accepted_at", "updated_at"])
         tokens = issue_tokens(user, membership)
         return Response({**tokens, "organization_id": str(invitation.organization_id)})

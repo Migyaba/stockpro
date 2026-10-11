@@ -1,4 +1,6 @@
 from django.db import transaction
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
 
 from apps.audit.services import AuditAction, write_audit
 from apps.core.permissions import require_permission
@@ -29,10 +31,12 @@ class CategoryViewSet(TenantViewSet):
 
 class ProductViewSet(TenantViewSet):
     serializer_class = ProductSerializer
-    queryset = Product.objects.select_related("category").all()
+    queryset = Product.objects.select_related("category").annotate(
+        total_stock=Coalesce(Sum("positions__quantity"), 0)
+    )
     search_fields = ["name", "sku", "barcode"]
     filterset_fields = ["is_active", "category"]
-    ordering_fields = ["name", "sku", "created_at"]
+    ordering_fields = ["name", "sku", "created_at", "total_stock"]
 
     def get_permissions(self):
         mapping = {

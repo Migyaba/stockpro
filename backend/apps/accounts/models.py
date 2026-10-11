@@ -142,6 +142,10 @@ class Invitation(TimeStampedModel):
         User, on_delete=models.SET_NULL, null=True, related_name="sent_invitations"
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
+    # Dépôts autorisés appliqués au membership à l'acceptation (§14.3). Vide = tous.
+    warehouses = models.ManyToManyField(
+        "inventory.Warehouse", blank=True, related_name="pending_invitations"
+    )
 
     class Meta:
         ordering = ["-created_at"]

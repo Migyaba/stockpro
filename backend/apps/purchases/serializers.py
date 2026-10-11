@@ -32,6 +32,12 @@ class PurchaseItemSerializer(TenantScopedSerializerMixin, serializers.ModelSeria
             "discount": {"min_value": 0},
         }
 
+    def validate_product(self, product):
+        # §19.2 : un produit désactivé ne peut plus entrer dans une nouvelle opération.
+        if not product.is_active:
+            raise serializers.ValidationError(f"Le produit {product.name} est désactivé.")
+        return product
+
 
 class PurchaseSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     items = PurchaseItemSerializer(many=True, allow_empty=False)

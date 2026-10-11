@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Boxes, RefreshCw, Layers, AlertTriangle, CheckCircle2, Plus } from "lucide-react";
+import Link from "next/link";
+import {
+  ArrowRightLeft,
+  Boxes,
+  RefreshCw,
+  Layers,
+  AlertTriangle,
+  CheckCircle2,
+  Plus,
+} from "lucide-react";
 import { StockTable } from "@/components/dashboard/StockTable";
 import { ProductSheet } from "@/components/dashboard/ProductSheet";
 import { NewProductSheet } from "@/components/dashboard/NewProductSheet";
@@ -52,7 +61,7 @@ export default function StockPage() {
   ).length;
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8">
+    <div className="flex flex-col gap-6 p-4 md:p-8">
       {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -67,7 +76,7 @@ export default function StockPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {warehouses.length > 1 && (
             <select
               value={warehouseFilter}
@@ -93,6 +102,14 @@ export default function StockPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             Actualiser
           </button>
+
+          <Link
+            href="/stock/transferts"
+            className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-xs transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5" />
+            Transferts
+          </Link>
 
           {canCreateProduct && (
             <button

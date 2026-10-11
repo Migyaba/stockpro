@@ -24,6 +24,8 @@ import {
   useUpdateOrganizationProfile,
   useOrganizationMembers,
   useToggleMemberActive,
+  usePendingInvitations,
+  useRevokeInvitation,
 } from "@/lib/hooks/useOrganization";
 import {
   useWarehouses,
@@ -32,10 +34,12 @@ import {
 import { NewWarehouseSheet } from "@/components/settings/NewWarehouseSheet";
 import { InviteMemberSheet } from "@/components/settings/InviteMemberSheet";
 import { SubscriptionSection } from "@/components/settings/SubscriptionSection";
-import type { Role } from "@/lib/types/api";
+import type { OrganizationMember, Role } from "@/lib/types/api";
+import { formatDate } from "@/lib/utils/format";
 import { toast } from "@/lib/stores/toastStore";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { ChangePasswordForm } from "@/components/settings/ChangePasswordForm";
+import { EditMemberSheet } from "@/components/settings/EditMemberSheet";
 
 type SettingsTab = "org" | "warehouses" | "team" | "security" | "billing";
 
@@ -49,7 +53,9 @@ const TAB_PERMISSIONS: Record<SettingsTab, string | null> = {
 
 export default function ParametresPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("org");
-  const { permissions } = useAuthStore();
+  const { permissions, membership, role: currentRole } = useAuthStore();
+  const canInvite = permissions.includes("users.invite");
+  const canUpdateMembers = permissions.includes("users.update");
   const canSeeTab = (tab: SettingsTab) => {
     const code = TAB_PERMISSIONS[tab];
     return !code || permissions.includes(code);
@@ -67,6 +73,13 @@ export default function ParametresPage() {
   const toggleWarehouse = useToggleWarehouseActive();
   const { data: members = [], isLoading: isLoadingMembers } = useOrganizationMembers();
   const toggleMember = useToggleMemberActive();
+  const { data: pendingInvitations = [] } = usePendingInvitations(canInvite);
+  const revokeInvitation = useRevokeInvitation();
+  const [editedMember, setEditedMember] = useState<OrganizationMember | null>(null);
+  const warehouseNames = new Map(warehouses.map((w) => [w.id, w.name]));
+  // Ni soi-même (règle backend), ni un propriétaire si l'on n'est pas propriétaire.
+  const canManage = (mem: OrganizationMember) =>
+    canUpdateMembers && mem.id !== membership?.id && (mem.role !== "OWNER" || currentRole === "OWNER");
 
   // Local state for org form
   const [orgForm, setOrgForm] = useState({
@@ -478,13 +491,15 @@ export default function ParametresPage() {
                 Assignez des accès à vos gestionnaires de stock et caissiers.
               </p>
             </div>
-            <button
-              onClick={() => setInviteMemberOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Inviter un collaborateur</span>
-            </button>
+            {canInvite && (
+              <button
+                onClick={() => setInviteMemberOpen(true)}
+                className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Inviter un collaborateur</span>
+              </button>
+            )}
           </div>
 
           <div className="rounded-xl border border-zinc-200/80 bg-white shadow-xs overflow-hidden dark:border-zinc-800 dark:bg-zinc-900">
@@ -494,7 +509,7 @@ export default function ParametresPage() {
                   <tr className="border-b border-zinc-200 bg-zinc-50/75 dark:border-zinc-800 dark:bg-zinc-800/40 text-zinc-500 font-semibold uppercase tracking-wider">
                     <th className="py-3 px-4">Collaborateur</th>
                     <th className="py-3 px-4">Rôle</th>
-                    <th className="py-3 px-4">Téléphone</th>
+                    <th className="py-3 px-4">Dépôts</th>
                     <th className="py-3 px-4">Statut</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
@@ -529,7 +544,11 @@ export default function ParametresPage() {
                       </td>
 
                       <td className="py-3 px-4 text-zinc-500">
-                        {mem.user?.phone || "—"}
+                        {mem.role === "OWNER" ||
+                        mem.role === "ADMINISTRATOR" ||
+                        !mem.warehouse_ids?.length
+                          ? "Tous"
+                          : mem.warehouse_ids.map((id) => warehouseNames.get(id) ?? "—").join(", ")}
                       </td>
 
                       <td className="py-3 px-4">
@@ -545,21 +564,29 @@ export default function ParametresPage() {
                       </td>
 
                       <td className="py-3 px-4 text-right">
-                        {mem.role !== "OWNER" && (
-                          <button
-                            onClick={() =>
-                              toggleMember.mutate(
-                                { id: mem.id, is_active: !mem.is_active },
-                                {
-                                  onError: (err) =>
-                                    toast.apiError(err, "Impossible de modifier ce membre."),
-                                }
-                              )
-                            }
-                            className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 underline"
-                          >
-                            {mem.is_active ? "Désactiver" : "Activer"}
-                          </button>
+                        {canManage(mem) && (
+                          <div className="flex items-center justify-end gap-3">
+                            <button
+                              onClick={() => setEditedMember(mem)}
+                              className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
+                            >
+                              Modifier
+                            </button>
+                            <button
+                              onClick={() =>
+                                toggleMember.mutate(
+                                  { id: mem.id, is_active: !mem.is_active },
+                                  {
+                                    onError: (err) =>
+                                      toast.apiError(err, "Impossible de modifier ce membre."),
+                                  }
+                                )
+                              }
+                              className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-200 underline"
+                            >
+                              {mem.is_active ? "Désactiver" : "Activer"}
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -568,8 +595,46 @@ export default function ParametresPage() {
               </table>
             </div>
           </div>
+
+          {canInvite && pendingInvitations.length > 0 && (
+            <div className="rounded-xl border border-zinc-200/80 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+              <h4 className="px-4 pt-4 text-xs font-bold text-zinc-900 dark:text-zinc-50">
+                Invitations en attente ({pendingInvitations.length})
+              </h4>
+              <ul className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {pendingInvitations.map((inv) => (
+                  <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs">
+                    <div>
+                      <p className="font-semibold text-zinc-900 dark:text-zinc-100">{inv.email}</p>
+                      <p className="text-[11px] text-zinc-400">
+                        {getRoleLabel(inv.role)} · expire le {formatDate(inv.expires_at)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (!confirm(`Révoquer l'invitation de ${inv.email} ?`)) return;
+                        revokeInvitation.mutate(inv.id, {
+                          onSuccess: () => toast.success("Invitation révoquée."),
+                          onError: (err) => toast.apiError(err, "Impossible de révoquer l'invitation."),
+                        });
+                      }}
+                      className="text-[11px] text-rose-600 hover:text-rose-800 underline dark:text-rose-400"
+                    >
+                      Révoquer
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
+
+      <EditMemberSheet
+        member={editedMember}
+        warehouses={warehouses}
+        onOpenChange={(open) => !open && setEditedMember(null)}
+      />
 
       {/* ─── Tab 4 : Mon compte (tous les rôles) ──────────────────────────── */}
       {currentTab === "security" && <ChangePasswordForm />}

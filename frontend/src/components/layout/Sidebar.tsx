@@ -28,6 +28,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: "Tableau de bord", href: "/dashboard", icon: LayoutDashboard },
   { label: "Ventes", href: "/ventes", icon: ShoppingCart },
+  { label: "Produits", href: "/produits", icon: Package },
   { label: "Stock", href: "/stock", icon: Boxes },
   { label: "Achats", href: "/achats", icon: Truck },
   { label: "Contacts", href: "/contacts", icon: Users },
@@ -41,9 +42,12 @@ const BOTTOM_ITEMS: NavItem[] = [
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  /** Tiroir mobile : pas de bouton « Réduire », fermeture à chaque navigation. */
+  mobile?: boolean;
+  onNavigate?: () => void;
 }
 
-export function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export function Sidebar({ collapsed, onToggle, mobile = false, onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const { organization, permissions } = useAuthStore();
   const allowed = (item: NavItem) => {
@@ -58,7 +62,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     <aside
       className={cn(
         "sidebar-transition flex h-full flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900",
-        collapsed ? "w-16" : "w-60"
+        mobile ? "w-full border-r-0" : collapsed ? "w-16" : "w-60"
       )}
     >
       {/* Logo */}
@@ -99,6 +103,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             item={item}
             collapsed={collapsed}
             active={isActive(item.href)}
+            onNavigate={onNavigate}
           />
         ))}
       </nav>
@@ -111,27 +116,30 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             item={item}
             collapsed={collapsed}
             active={isActive(item.href)}
+            onNavigate={onNavigate}
           />
         ))}
 
         {/* Collapse toggle */}
-        <button
-          onClick={onToggle}
-          className={cn(
-            "mt-1 flex h-9 w-full items-center rounded-md px-2 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50",
-            collapsed ? "justify-center" : "gap-2"
-          )}
-          aria-label={collapsed ? "Déplier la barre" : "Réduire la barre"}
-        >
-          {collapsed ? (
-            <ChevronRight className="h-4 w-4 shrink-0" />
-          ) : (
-            <>
-              <ChevronLeft className="h-4 w-4 shrink-0" />
-              <span>Réduire</span>
-            </>
-          )}
-        </button>
+        {!mobile && (
+          <button
+            onClick={onToggle}
+            className={cn(
+              "mt-1 flex h-9 w-full items-center rounded-md px-2 text-xs text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50",
+              collapsed ? "justify-center" : "gap-2"
+            )}
+            aria-label={collapsed ? "Déplier la barre" : "Réduire la barre"}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4 shrink-0" />
+            ) : (
+              <>
+                <ChevronLeft className="h-4 w-4 shrink-0" />
+                <span>Réduire</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
     </aside>
   );
@@ -141,16 +149,19 @@ function SidebarLink({
   item,
   collapsed,
   active,
+  onNavigate,
 }: {
   item: NavItem;
   collapsed: boolean;
   active: boolean;
+  onNavigate?: () => void;
 }) {
   const Icon = item.icon;
 
   return (
     <Link
       href={item.href}
+      onClick={onNavigate}
       title={collapsed ? item.label : undefined}
       className={cn(
         "group flex h-9 items-center gap-2.5 rounded-md px-2 text-sm font-medium transition-colors",

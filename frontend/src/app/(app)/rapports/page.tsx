@@ -25,13 +25,8 @@ import type { SaleItem } from "@/lib/types/api";
 
 type PeriodFilter = "7d" | "30d" | "month" | "year";
 
-function getCategoryName(cat: unknown): string {
-  if (!cat) return "Général";
-  if (typeof cat === "string") return cat;
-  if (typeof cat === "object" && cat !== null && "name" in cat) {
-    return String((cat as { name: string }).name) || "Général";
-  }
-  return "Général";
+function getCategoryName(product?: { category_name?: string | null }): string {
+  return product?.category_name || "Général";
 }
 
 export default function RapportsPage() {
@@ -161,7 +156,7 @@ export default function RapportsPage() {
         const prod = productMap.get(item.product);
         const name = item.product_name || prod?.name || "Article";
         const sku = prod?.sku || "SKU-N/A";
-        const category = getCategoryName(prod?.category);
+        const category = getCategoryName(prod);
         const costPrice = prod?.purchase_price ?? 0;
 
         const current = map.get(item.product) || {
@@ -221,7 +216,7 @@ export default function RapportsPage() {
     if (products.length === 0) return [];
     const catMap = new Map<string, number>();
     products.forEach((p) => {
-      const cat = getCategoryName(p.category);
+      const cat = getCategoryName(p);
       catMap.set(cat, (catMap.get(cat) || 0) + 1);
     });
 

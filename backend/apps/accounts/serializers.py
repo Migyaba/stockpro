@@ -2,15 +2,19 @@ import hashlib
 import secrets
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.accounts.models import Invitation, Membership, Role, User
+from apps.accounts.models import Invitation, Membership, MembershipWarehouse, Role, User
 from apps.accounts.tokens import issue_tokens
+from apps.core.exceptions import BusinessError
+from apps.core.serializers import TenantScopedSerializerMixin
 from apps.inventory.models import Warehouse
 from apps.organizations.models import (
     Organization,
@@ -18,6 +22,26 @@ from apps.organizations.models import (
     PlatformSubscriptionConfig,
     SubscriptionPlan,
 )
+
+
+def invitation_url(raw_token: str) -> str:
+    return f"{settings.FRONTEND_URL.rstrip('/')}/invitation?token={raw_token}"
+
+
+class OrganizationRequired(BusinessError):
+    """Compte rattaché à plusieurs organisations : le client doit en choisir une."""
+
+    def __init__(self, memberships):
+        super().__init__(
+            detail="Choisissez l'organisation à laquelle vous connecter.",
+            code="ORGANIZATION_REQUIRED",
+            extra={
+                "organizations": [
+                    {"id": str(m.organization_id), "name": m.organization.name}
+                    for m in memberships
+                ]
+            },
+        )
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -101,9 +125,7 @@ class LoginSerializer(serializers.Serializer):
         elif len(memberships) == 1:
             membership = memberships[0]
         else:
-            raise serializers.ValidationError(
-                {"organization_id": "Plusieurs organisations : précisez organization_id."}
-            )
+            raise OrganizationRequired(memberships)
         attrs["user"] = user
         attrs["membership"] = membership
         return attrs
@@ -133,7 +155,7 @@ class ChangePasswordSerializer(serializers.Serializer):
         return value
 
 
-class MembershipSerializer(serializers.ModelSerializer):
+class MembershipSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     email = serializers.EmailField(source="user.email", read_only=True)
     first_name = serializers.CharField(source="user.first_name", read_only=True)
     last_name = serializers.CharField(source="user.last_name", read_only=True)
@@ -150,24 +172,71 @@ class MembershipSerializer(serializers.ModelSerializer):
             "role",
             "is_active",
             "created_at",
+            "warehouse_ids",
         ]
         read_only_fields = ["id", "created_at"]
 
+    # Écriture : liste des dépôts autorisés (vide = tous, cf. §14.3).
+    warehouse_ids = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=Warehouse.objects.all(), required=False, write_only=True
+    )
 
-class InvitationSerializer(serializers.ModelSerializer):
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["warehouse_ids"] = [str(i) for i in instance.warehouse_ids()]
+        return data
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        warehouses = validated_data.pop("warehouse_ids", None)
+        instance = super().update(instance, validated_data)
+        if warehouses is not None:
+            instance.warehouse_links.all().delete()
+            MembershipWarehouse.objects.bulk_create(
+                MembershipWarehouse(membership=instance, warehouse=w) for w in warehouses
+            )
+        return instance
+
+
+class InvitationSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
+    warehouse_ids = serializers.PrimaryKeyRelatedField(
+        source="warehouses", many=True, queryset=Warehouse.objects.all(), required=False
+    )
+    invited_by_name = serializers.CharField(source="invited_by.full_name", read_only=True)
+
     class Meta:
         model = Invitation
-        fields = ["id", "email", "role", "expires_at", "accepted_at", "created_at"]
+        fields = [
+            "id",
+            "email",
+            "role",
+            "warehouse_ids",
+            "invited_by_name",
+            "expires_at",
+            "accepted_at",
+            "created_at",
+        ]
         read_only_fields = ["id", "expires_at", "accepted_at", "created_at"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Le lien n'est connu qu'à la création (seul le hash est stocké) : on le
+        # renvoie une fois pour permettre un partage par WhatsApp/SMS.
+        raw = getattr(instance, "raw_token", None)
+        if raw:
+            data["invitation_url"] = invitation_url(raw)
+        return data
 
     def validate_role(self, value):
         if value == Role.OWNER:
             raise serializers.ValidationError("Impossible d'inviter un second owner via invitation.")
         return value
 
+    @transaction.atomic
     def create(self, validated):
         request = self.context["request"]
         email = validated["email"].lower()
+        warehouses = validated.pop("warehouses", [])
         org = request.organization
         if Membership.objects.filter(organization=org, user__email__iexact=email).exists():
             raise serializers.ValidationError(
@@ -186,15 +255,18 @@ class InvitationSerializer(serializers.ModelSerializer):
             expires_at=timezone.now() + timedelta(days=7),
             invited_by=request.user,
         )
+        invitation.warehouses.set(warehouses)
         invitation.raw_token = raw
         return invitation
 
 
 class AcceptInvitationSerializer(serializers.Serializer):
     token = serializers.CharField()
-    password = serializers.CharField(required=False, min_length=8)
-    first_name = serializers.CharField(required=False)
-    last_name = serializers.CharField(required=False)
+    # Compte existant : son mot de passe actuel (preuve d'identité).
+    # Nouveau compte : le mot de passe choisi, avec prénom et nom.
+    password = serializers.CharField()
+    first_name = serializers.CharField(required=False, max_length=150)
+    last_name = serializers.CharField(required=False, max_length=150)
 
 
 class TokenPairSerializer(serializers.Serializer):
