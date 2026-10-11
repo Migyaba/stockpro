@@ -1,4 +1,4 @@
-import apiClient from "@/lib/api/client";
+import apiClient, { idempotencyHeaders } from "@/lib/api/client";
 import type {
   Sale,
   SaleStatus,
@@ -43,7 +43,9 @@ export async function createSale(payload: CreateSalePayload): Promise<Sale> {
 }
 
 export async function completeSale(id: string): Promise<Sale> {
-  const { data } = await apiClient.post<Sale>(`/sales/${id}/complete/`);
+  const { data } = await apiClient.post<Sale>(`/sales/${id}/complete/`, undefined, {
+    headers: idempotencyHeaders(),
+  });
   return data;
 }
 

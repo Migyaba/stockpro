@@ -1,11 +1,8 @@
-from rest_framework.decorators import action
-from rest_framework.response import Response
+from django.db import transaction
 
 from apps.audit.services import AuditAction, write_audit
-from apps.core.exceptions import InvalidStateTransition
 from apps.core.permissions import require_permission
 from apps.core.viewsets import TenantViewSet
-from apps.inventory.models import Warehouse
 from apps.inventory.services import initialize_stock
 from apps.products.models import Category, Product
 from apps.products.serializers import CategorySerializer, ProductSerializer
@@ -48,18 +45,14 @@ class ProductViewSet(TenantViewSet):
         }
         return [require_permission(mapping.get(self.action, "products.view"))()]
 
+    @transaction.atomic
     def perform_create(self, serializer):
         qty = serializer.validated_data.pop("initial_quantity", None)
-        warehouse_id = serializer.validated_data.pop("initial_warehouse", None)
+        warehouse = serializer.validated_data.pop("initial_warehouse", None)
         product = serializer.save(
             organization=self.request.organization, parent=None, is_variant=False
         )
         if qty:
-            if not warehouse_id:
-                raise InvalidStateTransition("Indiquez le dépôt pour le stock initial.")
-            warehouse = Warehouse.objects.get(
-                id=warehouse_id, organization=self.request.organization
-            )
             initialize_stock(
                 organization=self.request.organization,
                 product=product,
@@ -68,6 +61,11 @@ class ProductViewSet(TenantViewSet):
                 user=self.request.user,
             )
         write_audit(self.request, action=AuditAction.CREATE, entity=product)
+
+    def perform_update(self, serializer):
+        serializer.validated_data.pop("initial_quantity", None)
+        serializer.validated_data.pop("initial_warehouse", None)
+        serializer.save()
 
     def perform_destroy(self, instance):
         instance.is_active = False

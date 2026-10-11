@@ -11,6 +11,21 @@ jobs:
     name: Backend Tests
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +43,10 @@ jobs:
       - name: Run Django Tests
         run: |
           cd backend
-          python manage.py test apps
+          python manage.py test apps --noinput
+        env:
+          # PostgreSQL requis pour éprouver les verrous FOR UPDATE (test de concurrence).
+          TEST_DATABASE_URL: postgres://test:test@127.0.0.1:5432/test
 
   frontend-build:
     name: Frontend Build Check

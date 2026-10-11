@@ -1,6 +1,10 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from django.db import transaction
+
+from apps.core.exceptions import WarehouseForbidden
+from apps.core.serializers import TenantScopedSerializerMixin
 from apps.inventory.models import StockMovement, StockPosition, Transfer, TransferItem, Warehouse
 from apps.products.serializers import ProductSerializer
 
@@ -77,18 +81,26 @@ class StockMovementSerializer(serializers.ModelSerializer):
             "created_at",
         ]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        membership = getattr(self.context.get("request"), "membership", None)
+        if membership and not membership.has_perm("prices.view_cost"):
+            data.pop("unit_cost", None)
+        return data
 
-class TransferItemSerializer(serializers.ModelSerializer):
+
+class TransferItemSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
         model = TransferItem
         fields = ["id", "product", "product_name", "quantity"]
         read_only_fields = ["id"]
+        extra_kwargs = {"quantity": {"min_value": 1}}
 
 
-class TransferSerializer(serializers.ModelSerializer):
-    items = TransferItemSerializer(many=True)
+class TransferSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
+    items = TransferItemSerializer(many=True, allow_empty=False)
     source_name = serializers.CharField(source="source.name", read_only=True)
     destination_name = serializers.CharField(source="destination.name", read_only=True)
 
@@ -109,6 +121,19 @@ class TransferSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "reference", "status", "created_at", "completed_at"]
 
+    def validate(self, attrs):
+        source, destination = attrs.get("source"), attrs.get("destination")
+        if source and destination and source.pk == destination.pk:
+            raise serializers.ValidationError(
+                {"destination": "Les dépôts source et destination doivent être distincts."}
+            )
+        membership = self.context["request"].membership
+        for warehouse in (source, destination):
+            if warehouse and not membership.can_access_warehouse(warehouse):
+                raise WarehouseForbidden()
+        return attrs
+
+    @transaction.atomic
     def create(self, validated):
         items = validated.pop("items")
         validated.pop("organization", None)

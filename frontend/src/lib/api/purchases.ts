@@ -1,4 +1,4 @@
-import apiClient from "@/lib/api/client";
+import apiClient, { idempotencyHeaders } from "@/lib/api/client";
 import type {
   Purchase,
   PurchaseStatus,
@@ -55,7 +55,8 @@ export async function receivePurchase(
 ): Promise<Purchase> {
   const { data } = await apiClient.post<Purchase>(
     `/purchases/${id}/receive/`,
-    payload
+    payload,
+    { headers: idempotencyHeaders() }
   );
   return data;
 }

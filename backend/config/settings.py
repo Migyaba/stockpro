@@ -101,10 +101,16 @@ if "default" not in DATABASES:
     }
 
 if "test" in sys.argv:
-    DATABASES["default"] = {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "test.sqlite3",
-    }
+    # TEST_DATABASE_URL (PostgreSQL) est nécessaire pour éprouver les verrous FOR UPDATE ;
+    # sans elle, SQLite permet de lancer la suite rapidement sans service externe.
+    test_database_url = os.getenv("TEST_DATABASE_URL")
+    if test_database_url:
+        DATABASES["default"] = dj_database_url.parse(test_database_url)
+    else:
+        DATABASES["default"] = {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "test.sqlite3",
+        }
 
 AUTH_USER_MODEL = "accounts.User"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -178,8 +184,40 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "STOCKPRO <noreply@stockpro.local>"
+# En production, ces cookies ne transitent qu'en HTTPS (TLS terminé par Traefik/nginx).
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+# HSTS à activer explicitement une fois tout le domaine servi en HTTPS (irréversible côté navigateurs).
+SECURE_HSTS_SECONDS = int(os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+# SSL implicite (port 465) ou STARTTLS (port 587) : les deux sont exclusifs.
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "false").lower() == "true"
+EMAIL_USE_TLS = not EMAIL_USE_SSL and os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_TIMEOUT = 10
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "STOCKPRO <noreply@stockpro.local>")
+
+# Cache partagé entre les workers Gunicorn d'un même conteneur (throttling, anti-rafale AlphaPay).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": os.getenv("DJANGO_CACHE_DIR", "/tmp/stockpro-cache"),
+    }
+}
+if "test" in sys.argv:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "root": {"handlers": ["console"], "level": os.getenv("DJANGO_LOG_LEVEL", "INFO")},
+}
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -198,7 +236,19 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
     "DATETIME_FORMAT": "%Y-%m-%dT%H:%M:%S%z",
     "DEFAULT_SCHEMA_CLASS": "apps.core.schema.TaggedAutoSchema",
+    # Nombre de reverse proxies de confiance devant Django (Traefik ou nginx = 1) : l'IP
+    # du client est lue dans X-Forwarded-For sans pouvoir être usurpée par le client.
+    "NUM_PROXIES": int(os.getenv("DJANGO_NUM_PROXIES", "1")),
+    "DEFAULT_THROTTLE_RATES": {
+        "auth_login": os.getenv("THROTTLE_AUTH_LOGIN", "10/min"),
+        "auth_register": os.getenv("THROTTLE_AUTH_REGISTER", "20/hour"),
+        "auth_password": os.getenv("THROTTLE_AUTH_PASSWORD", "10/hour"),
+    },
 }
+if "test" in sys.argv:
+    REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
+        scope: "10000/min" for scope in REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+    }
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "STOCKPRO API",

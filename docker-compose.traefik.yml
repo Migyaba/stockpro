@@ -50,6 +50,19 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?Definir MINIO_ACCESS_KEY}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?Definir MINIO_SECRET_KEY}
       MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-stockpro-media}
+      ALPHAPAY_SECRET_KEY: ${ALPHAPAY_SECRET_KEY:-}
+      ALPHAPAY_WEBHOOK_SECRET: ${ALPHAPAY_WEBHOOK_SECRET:-}
+      FRONTEND_URL: ${FRONTEND_URL:-https://stockpro.miguelmissetcho.com}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-false}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-true}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-STOCKPRO <noreply@stockpro.local>}
+      DJANGO_NUM_PROXIES: ${DJANGO_NUM_PROXIES:-1}
+      DJANGO_SECURE_HSTS_SECONDS: ${DJANGO_SECURE_HSTS_SECONDS:-0}
     networks:
       - stockpro-internal
       - traefik-network

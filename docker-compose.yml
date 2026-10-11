@@ -37,6 +37,7 @@ services:
       ALPHAPAY_SECRET_KEY: ${ALPHAPAY_SECRET_KEY:-}
       ALPHAPAY_WEBHOOK_SECRET: ${ALPHAPAY_WEBHOOK_SECRET:-}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DJANGO_NUM_PROXIES: ${DJANGO_NUM_PROXIES:-0}
     ports:
       - "8000:8000"
     volumes:

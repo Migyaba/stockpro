@@ -19,6 +19,7 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { formatFCFA, cn } from "@/lib/utils/format";
+import { getApiErrorMessage } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/stores/authStore";
 import {
   useCustomers,
@@ -50,7 +51,7 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
   const completeSale = useCompleteSale();
 
   const [warehouseId, setWarehouseId] = useState<string>(
-    activeWarehouse?.id ?? warehouses[0]?.id ?? "wh-dakar-01"
+    activeWarehouse?.id ?? warehouses[0]?.id ?? ""
   );
   const [customerId, setCustomerId] = useState<string>("");
   const [items, setItems] = useState<FormItem[]>([
@@ -156,8 +157,10 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
       // Reset form
       setItems([{ id: "line-1", product: "", quantity: 1, unit_price: 0, discount: 0 }]);
       setCustomerId("");
-    } catch {
-      setErrorMsg("Une erreur est survenue lors de l'enregistrement de la vente.");
+    } catch (err) {
+      setErrorMsg(
+        getApiErrorMessage(err, "Une erreur est survenue lors de l'enregistrement de la vente.")
+      );
     }
   }
 
@@ -200,15 +203,11 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
                 onChange={(e) => setWarehouseId(e.target.value)}
                 className="w-full rounded-lg border border-zinc-300 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
               >
-                {warehouses.length > 0 ? (
-                  warehouses.map((wh) => (
-                    <option key={wh.id} value={wh.id}>
-                      {wh.name}
-                    </option>
-                  ))
-                ) : (
-                  <option value="wh-dakar-01">Entrepôt Principal Dakar</option>
-                )}
+                {warehouses.map((wh) => (
+                  <option key={wh.id} value={wh.id}>
+                    {wh.name}
+                  </option>
+                ))}
               </select>
             </div>
 

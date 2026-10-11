@@ -1,11 +1,13 @@
-from django.db.models import F
+from django.db import transaction
+from django.db.models import F, Q
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
+from apps.core.idempotency import idempotent
 from apps.core.permissions import require_permission
-from apps.core.viewsets import TenantViewSet
+from apps.core.viewsets import TenantViewSet, restrict_to_allowed_warehouses
 from apps.inventory.models import StockMovement, StockPosition, Transfer, TransferStatus, Warehouse
 from apps.inventory.serializers import (
     StockMovementSerializer,
@@ -72,6 +74,9 @@ class MovementViewSet(TenantViewSet):
     def get_permissions(self):
         return [require_permission("stock.view")()]
 
+    def get_queryset(self):
+        return restrict_to_allowed_warehouses(super().get_queryset(), self.request.membership)
+
 
 class TransferViewSet(TenantViewSet):
     serializer_class = TransferSerializer
@@ -79,26 +84,36 @@ class TransferViewSet(TenantViewSet):
         "source", "destination"
     )
     filterset_fields = ["status", "source", "destination"]
+    # Un transfert ne se modifie ni ne se supprime : il évolue via complete/cancel.
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
             return [require_permission("stock.view")()]
         return [require_permission("stock.transfer")()]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        membership = self.request.membership
+        ids = membership.warehouse_ids()
+        if ids and membership.role not in {"OWNER", "ADMINISTRATOR"}:
+            qs = qs.filter(Q(source_id__in=ids) | Q(destination_id__in=ids))
+        return qs
+
     @action(detail=True, methods=["post"])
+    @idempotent
     def complete(self, request, pk=None):
-        transfer = self.get_object()
-        complete_transfer(transfer, request.user, request.membership)
+        transfer = complete_transfer(self.get_object(), request.user, request.membership)
         write_audit(request, action=AuditAction.VALIDATE, entity=transfer)
         return Response(self.get_serializer(transfer).data)
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        transfer = self.get_object()
-        if transfer.status != TransferStatus.DRAFT:
-            from apps.core.exceptions import InvalidStateTransition
-
-            raise InvalidStateTransition("Seul un brouillon peut être annulé.")
-        transfer.status = TransferStatus.CANCELLED
-        transfer.save(update_fields=["status", "updated_at"])
+        with transaction.atomic():
+            transfer = Transfer.objects.select_for_update().get(pk=self.get_object().pk)
+            if transfer.status != TransferStatus.DRAFT:
+                raise InvalidStateTransition("Seul un brouillon peut être annulé.")
+            transfer.status = TransferStatus.CANCELLED
+            transfer.save(update_fields=["status", "updated_at"])
+        write_audit(request, action=AuditAction.CANCEL, entity=transfer)
         return Response(self.get_serializer(transfer).data)

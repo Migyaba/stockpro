@@ -1,12 +1,20 @@
 import hashlib
+import logging
 
+from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
+from django.db import transaction
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -30,10 +38,14 @@ from apps.core.exceptions import InvalidStateTransition
 from apps.core.permissions import ROLE_PERMISSIONS, require_permission
 from apps.core.viewsets import TenantViewSet
 
+logger = logging.getLogger(__name__)
+
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_register"
     serializer_class = RegisterSerializer
 
     def post(self, request):
@@ -61,6 +73,8 @@ class RegisterView(APIView):
 class LoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_login"
     serializer_class = LoginSerializer
 
     def post(self, request):
@@ -109,8 +123,17 @@ class RefreshView(APIView):
             membership_id = old["membership_id"]
         except KeyError:
             return Response({"error": {"code": "invalid", "message": "Jeton incomplet."}}, status=400)
-        user = User.objects.get(id=user_id)
-        membership = Membership.objects.get(id=membership_id, user=user, is_active=True)
+        membership = (
+            Membership.objects.select_related("user", "organization")
+            .filter(id=membership_id, user_id=user_id, is_active=True, user__is_active=True)
+            .first()
+        )
+        if membership is None or membership.organization.status == "CANCELLED":
+            return Response(
+                {"error": {"code": "authentication_failed", "message": "Accès révoqué : reconnectez-vous."}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        user = membership.user
         old.blacklist()
         tokens = issue_tokens(user, membership)
         return Response(tokens)
@@ -203,6 +226,8 @@ class ChangePasswordView(APIView):
 class PasswordForgotView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password"
     serializer_class = ForgotPasswordSerializer
 
     def post(self, request):
@@ -211,15 +236,34 @@ class PasswordForgotView(APIView):
             user = User.objects.get(email__iexact=email)
         except User.DoesNotExist:
             return Response({"ok": True})
+        if not user.is_active:
+            return Response({"ok": True})
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
-        print(f"[STOCKPRO] Reset password: {email} uid={uid} token={token}")
+        link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?uid={uid}&token={token}"
+        try:
+            send_mail(
+                subject="STOCKPRO — Réinitialisation de votre mot de passe",
+                message=(
+                    f"Bonjour {user.first_name},\n\n"
+                    "Pour choisir un nouveau mot de passe, ouvrez ce lien :\n"
+                    f"{link}\n\n"
+                    "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."
+                ),
+                from_email=None,
+                recipient_list=[user.email],
+            )
+        except Exception:
+            # Réponse identique dans tous les cas : ne pas révéler l'existence du compte.
+            logger.exception("Échec d'envoi de l'email de réinitialisation.")
         return Response({"ok": True})
 
 
 class PasswordResetView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password"
     serializer_class = PasswordResetSerializer
 
     def post(self, request):
@@ -233,9 +277,15 @@ class PasswordResetView(APIView):
             return Response(
                 {"error": {"code": "invalid", "message": "Lien invalide."}}, status=400
             )
-        if not default_token_generator.check_token(user, token):
+        if not user.is_active or not default_token_generator.check_token(user, token):
             return Response(
                 {"error": {"code": "invalid", "message": "Lien expiré."}}, status=400
+            )
+        try:
+            validate_password(password or "", user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"error": {"code": "invalid", "message": " ".join(exc.messages)}}, status=400
             )
         user.set_password(password)
         user.save()
@@ -252,14 +302,27 @@ class MembershipViewSet(TenantViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         if not request.membership.has_perm("users.update"):
-            return Response(status=403)
+            raise PermissionDenied()
         instance = self.get_object()
-        if instance.role == Role.OWNER and request.data.get("role") not in (None, Role.OWNER):
-            owners = Membership.objects.filter(
-                organization=request.organization, role=Role.OWNER, is_active=True
-            ).count()
-            if owners <= 1:
-                raise InvalidStateTransition("L'organisation doit conserver au moins un owner.")
+        new_role = request.data.get("role", instance.role)
+        deactivating = str(request.data.get("is_active", instance.is_active)).lower() in {"false", "0"}
+        if instance.pk == request.membership.pk:
+            raise InvalidStateTransition("Vous ne pouvez pas modifier votre propre rôle ou accès.")
+        touches_owner = instance.role == Role.OWNER or new_role == Role.OWNER
+        if touches_owner and request.membership.role != Role.OWNER:
+            raise PermissionDenied("Seul un owner peut attribuer ou modifier le rôle owner.")
+        loses_owner = instance.role == Role.OWNER and (new_role != Role.OWNER or deactivating)
+        if loses_owner:
+            with transaction.atomic():
+                # FOR UPDATE n'accepte pas COUNT() sous PostgreSQL : on matérialise la liste.
+                active_owners = list(
+                    Membership.objects.select_for_update().filter(
+                        organization=request.organization, role=Role.OWNER, is_active=True
+                    )
+                )
+                if len(active_owners) <= 1:
+                    raise InvalidStateTransition("L'organisation doit conserver au moins un owner actif.")
+                return super().partial_update(request, *args, **kwargs)
         return super().partial_update(request, *args, **kwargs)
 
 
@@ -291,6 +354,8 @@ class InvitationViewSet(TenantViewSet):
 class AcceptInvitationView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_login"
     serializer_class = AcceptInvitationSerializer
 
     def post(self, request):
