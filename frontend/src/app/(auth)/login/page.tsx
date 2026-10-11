@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 import { useLogin } from "@/lib/hooks/useAuth";
-import { getApiErrorMessage } from "@/lib/api/client";
+import { getApiErrorCode, getApiErrorDetails, getApiErrorMessage } from "@/lib/api/client";
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -18,10 +18,29 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
 
   const login = useLogin();
+  const [organizationId, setOrganizationId] = useState("");
+
+  // Compte rattaché à plusieurs organisations : le backend demande laquelle ouvrir.
+  const organizationChoices =
+    getApiErrorCode(login.error) === "ORGANIZATION_REQUIRED"
+      ? getApiErrorDetails<{ organizations: { id: string; name: string }[] }>(login.error)
+          ?.organizations ?? []
+      : [];
+  const [choices, setChoices] = useState<{ id: string; name: string }[]>([]);
+  if (organizationChoices.length > 0 && organizationChoices !== choices) {
+    setChoices(organizationChoices);
+    setOrganizationId(organizationChoices[0].id);
+  }
+  const mustChooseOrganization = choices.length > 0;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    login.mutate({ email, password, redirectTo });
+    login.mutate({
+      email,
+      password,
+      redirectTo,
+      ...(mustChooseOrganization ? { organization_id: organizationId } : {}),
+    });
   }
 
   return (
@@ -43,7 +62,7 @@ function LoginForm() {
             <span>Votre session a expiré. Reconnectez-vous pour continuer.</span>
           </div>
         )}
-        {login.isError && (
+        {login.isError && getApiErrorCode(login.error) !== "ORGANIZATION_REQUIRED" && (
           <div className="flex items-start gap-2.5 rounded-lg border border-rose-800/50 bg-rose-950/50 px-4 py-3 text-sm text-rose-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{getApiErrorMessage(login.error, "Email ou mot de passe incorrect.")}</span>
@@ -119,6 +138,29 @@ function LoginForm() {
             </button>
           </div>
         </div>
+
+        {mustChooseOrganization && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="organization" className="text-sm font-medium text-zinc-300">
+              Organisation
+            </label>
+            <select
+              id="organization"
+              value={organizationId}
+              onChange={(e) => setOrganizationId(e.target.value)}
+              className="h-10 w-full rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 text-sm text-white outline-none focus:border-indigo-500"
+            >
+              {choices.map((org) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-zinc-500">
+              Votre compte appartient à plusieurs organisations : choisissez celle à ouvrir.
+            </p>
+          </div>
+        )}
 
         {/* Submit */}
         <button

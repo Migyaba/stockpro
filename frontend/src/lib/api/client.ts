@@ -121,6 +121,17 @@ export async function fetchAllPages<T>(
   }
 }
 
+// Code métier d'une erreur API (ex. "STOCK_INSUFFICIENT", "ORGANIZATION_REQUIRED").
+export function getApiErrorCode(error: unknown): string | undefined {
+  return (error as { response?: { data?: { error?: { code?: string } } } })?.response?.data
+    ?.error?.code;
+}
+
+export function getApiErrorDetails<T>(error: unknown): T | undefined {
+  return (error as { response?: { data?: { error?: { details?: T } } } })?.response?.data?.error
+    ?.details;
+}
+
 // Le backend renvoie { error: { code, message } } ; on remonte ce message métier.
 export function getApiErrorMessage(error: unknown, fallback: string): string {
   const data = (error as { response?: { data?: { error?: { message?: string } } } })

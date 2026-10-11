@@ -55,3 +55,29 @@ export async function fetchMyWarehouses(): Promise<Warehouse[]> {
   );
   return data.results;
 }
+
+// ─── Invitations (pages publiques) ─────────────────────────────────────────
+export interface InvitationInfo {
+  email: string;
+  role: Role;
+  organization_name: string;
+  account_exists: boolean;
+  expires_at: string;
+}
+
+export async function fetchInvitationInfo(token: string): Promise<InvitationInfo> {
+  const { data } = await apiClient.get<InvitationInfo>("/auth/invitations/info/", {
+    params: { token },
+  });
+  return data;
+}
+
+export async function acceptInvitation(payload: {
+  token: string;
+  password: string;
+  first_name?: string;
+  last_name?: string;
+}): Promise<AuthTokens> {
+  const { data } = await apiClient.post<AuthTokens>("/auth/invitations/accept/", payload);
+  return data;
+}

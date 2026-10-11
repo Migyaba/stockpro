@@ -18,17 +18,21 @@ import {
 } from "lucide-react";
 import { formatFCFA } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { useCategories, useCreateProduct } from "@/lib/hooks/useProducts";
-import type { ProductCreatePayload } from "@/lib/types/api";
+import { useCategories, useCreateProduct, useUpdateProduct } from "@/lib/hooks/useProducts";
+import { toast } from "@/lib/stores/toastStore";
+import type { Product, ProductCreatePayload } from "@/lib/types/api";
 import { getApiErrorMessage } from "@/lib/api/client";
 
 interface NewProductSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Produit à modifier ; absent = création. Remonter la fiche (key) quand il change. */
+  product?: Product | null;
 }
 
 const UNITS = [
-  { value: "piece", label: "Pièce(s)" },
+  // « pièce » est la valeur par défaut côté API.
+  { value: "pièce", label: "Pièce(s)" },
   { value: "carton", label: "Carton(s)" },
   { value: "sac", label: "Sac(s)" },
   { value: "kg", label: "Kilogramme (kg)" },
@@ -37,21 +41,26 @@ const UNITS = [
   { value: "bouteille", label: "Bouteille(s)" },
 ];
 
-export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
-  const { warehouses, activeWarehouse } = useAuthStore();
+export function NewProductSheet({ open, onOpenChange, product }: NewProductSheetProps) {
+  const { warehouses, activeWarehouse, canViewCost } = useAuthStore();
   const { data: categories = [] } = useCategories();
   const createProduct = useCreateProduct();
+  const updateProduct = useUpdateProduct();
+  const isEdit = !!product;
+  const isSaving = createProduct.isPending || updateProduct.isPending;
 
-  const [name, setName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [sku, setSku] = useState("");
-  const [barcode, setBarcode] = useState("");
-  const [unit, setUnit] = useState("piece");
-  const [description, setDescription] = useState("");
-  const [purchasePrice, setPurchasePrice] = useState<number | "">("");
-  const [sellingPrice, setSellingPrice] = useState<number | "">("");
-  const [minimumStock, setMinimumStock] = useState<number>(5);
-  const [maximumStock, setMaximumStock] = useState<number>(100);
+  const [name, setName] = useState(product?.name ?? "");
+  const [categoryId, setCategoryId] = useState(product?.category ?? "");
+  const [sku, setSku] = useState(product?.sku ?? "");
+  const [barcode, setBarcode] = useState(product?.barcode ?? "");
+  const [unit, setUnit] = useState(product?.unit ?? "pièce");
+  const [description, setDescription] = useState(product?.description ?? "");
+  const [purchasePrice, setPurchasePrice] = useState<number | "">(product?.purchase_price ?? "");
+  const [sellingPrice, setSellingPrice] = useState<number | "">(product?.selling_price ?? "");
+  const [minimumStock, setMinimumStock] = useState<number>(product?.minimum_stock ?? 5);
+  const [maximumStock, setMaximumStock] = useState<number>(product?.maximum_stock ?? 100);
+  // Une unité saisie ailleurs (ancienne valeur, API) reste sélectionnable.
+  const unitOptions = UNITS.some((u) => u.value === unit) ? UNITS : [...UNITS, { value: unit, label: unit }];
 
   // Initial stock toggle
   const [hasInitialStock, setHasInitialStock] = useState(false);
@@ -98,6 +107,33 @@ export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
     }
     if (hasInitialStock && (!initialWarehouse || initialQuantity < 0)) {
       setErrorMsg("Veuillez sélectionner un dépôt valide pour le stock initial.");
+      return;
+    }
+
+    if (isEdit && product) {
+      try {
+        await updateProduct.mutateAsync({
+          id: product.id,
+          payload: {
+            name: name.trim(),
+            category: categoryId || null,
+            sku: sku.trim().toUpperCase(),
+            // Chaîne vide (et non undefined) pour pouvoir effacer un code-barres.
+            barcode: barcode.trim(),
+            description: description.trim(),
+            unit,
+            // Le prix d'achat n'est envoyé que si le rôle peut le voir.
+            ...(canViewCost && typeof purchasePrice === "number" ? { purchase_price: purchasePrice } : {}),
+            selling_price: sellingPrice,
+            minimum_stock: minimumStock,
+            maximum_stock: maximumStock,
+          },
+        });
+        toast.success("Produit mis à jour.");
+        onOpenChange(false);
+      } catch (err: unknown) {
+        setErrorMsg(getApiErrorMessage(err, "Impossible d'enregistrer les modifications."));
+      }
       return;
     }
 
@@ -151,10 +187,12 @@ export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
             </div>
             <div>
               <SheetTitle className="text-lg font-semibold text-white">
-                Nouveau produit
+                {isEdit ? "Modifier le produit" : "Nouveau produit"}
               </SheetTitle>
               <SheetDescription className="text-xs text-zinc-400">
-                Ajoutez une référence au catalogue avec prix et stock initial
+                {isEdit
+                  ? "Les ventes déjà validées conservent leurs prix d'origine."
+                  : "Ajoutez une référence au catalogue avec prix et stock initial"}
               </SheetDescription>
             </div>
           </div>
@@ -216,7 +254,7 @@ export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
                   onChange={(e) => setUnit(e.target.value)}
                   className="w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
                 >
-                  {UNITS.map((u) => (
+                  {unitOptions.map((u) => (
                     <option key={u.value} value={u.value}>
                       {u.label}
                     </option>
@@ -375,61 +413,63 @@ export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
               </div>
             </div>
 
-            {/* Toggle stock initial */}
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3.5 space-y-3">
-              <label className="flex items-center justify-between cursor-pointer">
-                <div>
-                  <p className="text-xs font-semibold text-white">
-                    Initialiser le stock dès maintenant
-                  </p>
-                  <p className="text-[11px] text-zinc-400">
-                    Génère une position d'entrée avec mouvement de stock immuable
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={hasInitialStock}
-                  onChange={(e) => setHasInitialStock(e.target.checked)}
-                  className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-indigo-600 focus:ring-indigo-500"
-                />
-              </label>
-
-              {hasInitialStock && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-zinc-800/60">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-zinc-300">
-                      Quantité initiale
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={initialQuantity}
-                      onChange={(e) => setInitialQuantity(Number(e.target.value))}
-                      className="w-full rounded-lg border border-zinc-750 bg-zinc-950 px-3 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                    />
+            {/* Toggle stock initial (création uniquement : ensuite le stock ne bouge que par les opérations) */}
+            {!isEdit && (
+              <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-3.5 space-y-3">
+                <label className="flex items-center justify-between cursor-pointer">
+                  <div>
+                    <p className="text-xs font-semibold text-white">
+                      Initialiser le stock dès maintenant
+                    </p>
+                    <p className="text-[11px] text-zinc-400">
+                      Génère une position d'entrée avec mouvement de stock immuable
+                    </p>
                   </div>
+                  <input
+                    type="checkbox"
+                    checked={hasInitialStock}
+                    onChange={(e) => setHasInitialStock(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-indigo-600 focus:ring-indigo-500"
+                  />
+                </label>
 
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-medium text-zinc-300">
-                      Dépôt cible
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={initialWarehouse}
-                        onChange={(e) => setInitialWarehouse(e.target.value)}
+                {hasInitialStock && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-zinc-800/60">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-zinc-300">
+                        Quantité initiale
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={initialQuantity}
+                        onChange={(e) => setInitialQuantity(Number(e.target.value))}
                         className="w-full rounded-lg border border-zinc-750 bg-zinc-950 px-3 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
-                      >
-                        {warehouses.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name} ({w.city})
-                          </option>
-                        ))}
-                      </select>
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-zinc-300">
+                        Dépôt cible
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={initialWarehouse}
+                          onChange={(e) => setInitialWarehouse(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-750 bg-zinc-950 px-3 py-1.5 text-xs text-white focus:border-indigo-500 focus:outline-none"
+                        >
+                          {warehouses.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name} ({w.city})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Footer actions */}
@@ -443,14 +483,16 @@ export function NewProductSheet({ open, onOpenChange }: NewProductSheetProps) {
             </button>
             <button
               type="submit"
-              disabled={createProduct.isPending}
+              disabled={isSaving}
               className="flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 disabled:opacity-50 transition"
             >
-              {createProduct.isPending ? (
+              {isSaving ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Création…
+                  Enregistrement…
                 </>
+              ) : isEdit ? (
+                "Enregistrer"
               ) : (
                 "Créer le produit"
               )}

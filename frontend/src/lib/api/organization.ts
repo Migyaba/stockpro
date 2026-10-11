@@ -1,8 +1,10 @@
-import apiClient from "@/lib/api/client";
+import apiClient, { fetchAllPages } from "@/lib/api/client";
 import type {
   Organization,
   OrganizationMember,
   InviteMemberPayload,
+  Invitation,
+  UpdateMemberPayload,
   PaginatedResponse,
 } from "@/lib/types/api";
 
@@ -56,19 +58,25 @@ export async function fetchOrganizationMembers(): Promise<OrganizationMember[]> 
 
 export async function inviteOrganizationMember(
   payload: InviteMemberPayload
-): Promise<void> {
-  await apiClient.post("/invitations/", payload);
+): Promise<Invitation> {
+  const { data } = await apiClient.post<Invitation>("/invitations/", payload);
+  return data;
 }
 
-export async function updateMemberRole(
-  id: number | string,
-  role: OrganizationMember["role"]
-): Promise<void> {
-  await apiClient.patch(`/users/${id}/`, { role });
+export async function fetchPendingInvitations(): Promise<Invitation[]> {
+  return fetchAllPages<Invitation>("/invitations/", { status: "pending" });
+}
+
+export async function revokeInvitation(id: string): Promise<void> {
+  await apiClient.delete(`/invitations/${id}/`);
+}
+
+export async function updateMember(id: string, payload: UpdateMemberPayload): Promise<void> {
+  await apiClient.patch(`/users/${id}/`, payload);
 }
 
 export async function toggleMemberActive(
-  id: number | string,
+  id: string,
   is_active: boolean
 ): Promise<void> {
   await apiClient.patch(`/users/${id}/`, { is_active });

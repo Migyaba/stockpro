@@ -11,6 +11,7 @@ import {
   fetchMe,
   fetchMyMembership,
   fetchMyWarehouses,
+  acceptInvitation,
 } from "@/lib/api/auth";
 import type { LoginPayload, RegisterPayload } from "@/lib/types/api";
 
@@ -67,12 +68,30 @@ export function useLogin() {
   const router = useRouter();
 
   return useMutation({
-    mutationFn: ({ email, password }: LoginPayload & { redirectTo?: string }) =>
-      login({ email, password }),
+    mutationFn: ({ email, password, organization_id }: LoginPayload & { redirectTo?: string }) =>
+      login({ email, password, organization_id }),
     onSuccess: (tokens, { redirectTo }) => {
       setTokens(tokens.access, tokens.refresh);
       queryClient.invalidateQueries({ queryKey: ["auth"] });
       router.push(safeRedirect(redirectTo));
+    },
+  });
+}
+
+// ─── Acceptation d'invitation : ouvre une session sur la nouvelle organisation ─
+export function useAcceptInvitation() {
+  const { setTokens, logout: clearStore } = useAuthStore();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: acceptInvitation,
+    onSuccess: (tokens) => {
+      // Une éventuelle session précédente (autre organisation) est remplacée.
+      clearStore();
+      queryClient.clear();
+      setTokens(tokens.access, tokens.refresh);
+      router.push("/dashboard");
     },
   });
 }

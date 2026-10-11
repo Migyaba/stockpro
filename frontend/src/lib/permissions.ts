@@ -3,6 +3,7 @@
 // reste la seule vraie barrière, ceci évite seulement d'afficher des pages en 403.
 export const ROUTE_PERMISSIONS: Record<string, string | null> = {
   "/dashboard": "products.view",
+  "/produits": "products.view",
   "/ventes": "sales.view",
   "/stock": "stock.view",
   "/achats": "purchases.view",

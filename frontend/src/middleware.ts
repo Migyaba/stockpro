@@ -1,10 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-// Routes that do NOT require authentication
-const PUBLIC_PATHS = ["/login", "/register", "/reset-password"];
+// Pages réservées aux visiteurs non connectés (redirigés vers le dashboard sinon).
+// /reset-password et /invitation restent accessibles même connecté : on peut y
+// arriver depuis un email alors qu'une autre session est ouverte.
+const PUBLIC_PATHS = ["/login", "/register"];
 
 // Routes that require authentication but skip the membership bootstrap check
-const AUTH_PATHS_REGEX = /^\/(dashboard|ventes|achats|stock|contacts|rapports|parametres)/;
+const AUTH_PATHS_REGEX = /^\/(dashboard|produits|ventes|achats|stock|contacts|rapports|parametres)/;
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

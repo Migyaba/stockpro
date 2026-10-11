@@ -1,3 +1,4 @@
+from django.db.models import Sum
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
@@ -27,6 +28,7 @@ class CategorySerializer(TenantScopedSerializerMixin, serializers.ModelSerialize
 
 class ProductSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
+    total_stock = serializers.SerializerMethodField()
     initial_quantity = serializers.IntegerField(write_only=True, required=False, min_value=0)
     initial_warehouse = serializers.PrimaryKeyRelatedField(
         queryset=Warehouse.objects.all(), write_only=True, required=False
@@ -49,6 +51,7 @@ class ProductSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer
             "maximum_stock",
             "image",
             "is_active",
+            "total_stock",
             "created_at",
             "updated_at",
             "initial_quantity",
@@ -59,6 +62,13 @@ class ProductSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer
             "purchase_price": {"min_value": 0},
             "selling_price": {"min_value": 0},
         }
+
+    def get_total_stock(self, obj) -> int:
+        # Annoté par ProductViewSet ; calculé à la volée après une création.
+        total = getattr(obj, "total_stock", None)
+        if total is None:
+            total = obj.positions.aggregate(t=Sum("quantity"))["t"] or 0
+        return total
 
     def validate(self, attrs):
         organization = _organization(self)

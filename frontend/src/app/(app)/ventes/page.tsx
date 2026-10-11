@@ -91,7 +91,7 @@ export default function VentesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6 md:p-8">
+    <div className="flex flex-col gap-6 p-4 md:p-8">
       {/* Page Title & Header Actions */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

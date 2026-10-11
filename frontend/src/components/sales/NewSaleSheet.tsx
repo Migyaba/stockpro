@@ -17,6 +17,7 @@ import {
   Building2,
   User,
   ShoppingBag,
+  ScanBarcode,
 } from "lucide-react";
 import { formatFCFA, cn } from "@/lib/utils/format";
 import { getApiErrorMessage } from "@/lib/api/client";
@@ -65,6 +66,41 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
     },
   ]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [scanCode, setScanCode] = useState("");
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+
+  // Code-barres ou SKU saisi (ou douchette USB qui tape le code puis « Entrée ») :
+  // ajoute le produit, ou incrémente sa quantité s'il est déjà sur la vente.
+  function handleScan(e: React.FormEvent) {
+    e.preventDefault();
+    const code = scanCode.trim().toUpperCase();
+    if (!code) return;
+    const product = products.find(
+      (p) => (p.barcode && p.barcode.toUpperCase() === code) || p.sku.toUpperCase() === code
+    );
+    if (!product) {
+      setScanMessage(`Aucun produit actif pour « ${scanCode.trim()} ».`);
+      return;
+    }
+    setScanMessage(null);
+    setScanCode("");
+    setItems((prev) => {
+      const existing = prev.find((i) => i.product === product.id);
+      if (existing) {
+        return prev.map((i) => (i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i));
+      }
+      const line = {
+        id: `line-${Date.now()}`,
+        product: product.id,
+        quantity: 1,
+        unit_price: product.selling_price,
+        discount: 0,
+      };
+      // Remplace la ligne vide initiale plutôt que d'en empiler une nouvelle.
+      const withoutEmpty = prev.filter((i) => i.product);
+      return [...withoutEmpty, line];
+    });
+  }
 
   // Line item helpers
   function handleAddLine() {
@@ -239,6 +275,24 @@ export function NewSaleSheet({ open, onOpenChange }: NewSaleSheetProps) {
               </select>
             </div>
           </div>
+
+          {/* Saisie par code-barres / SKU */}
+          <form onSubmit={handleScan} className="flex flex-col gap-1.5">
+            <div className="relative">
+              <ScanBarcode className="absolute left-3 top-2.5 h-4 w-4 text-zinc-400" />
+              <input
+                value={scanCode}
+                onChange={(e) => setScanCode(e.target.value)}
+                placeholder="Scanner ou saisir un code-barres / SKU puis Entrée"
+                inputMode="text"
+                autoComplete="off"
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-800 dark:bg-zinc-900"
+              />
+            </div>
+            {scanMessage && (
+              <p className="text-xs text-amber-600 dark:text-amber-400">{scanMessage}</p>
+            )}
+          </form>
 
           {/* Articles Table */}
           <div className="flex flex-col gap-3">

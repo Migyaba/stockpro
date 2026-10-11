@@ -22,6 +22,11 @@ def complete_transfer(transfer: Transfer, user, membership):
     items = list(transfer.items.select_related("product").order_by("product_id"))
     if not items:
         raise InvalidStateTransition("Le transfert n'a aucune ligne.")
+    for item in items:
+        if not item.product.is_active:
+            raise InvalidStateTransition(
+                f"Le produit {item.product.name} est désactivé et ne peut plus être transféré."
+            )
 
     for item in items:
         apply_stock_delta(

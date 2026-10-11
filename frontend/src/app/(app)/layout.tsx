@@ -7,6 +7,7 @@ import { Loader2, ShieldAlert } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { requiredPermission } from "@/lib/permissions";
 import { useHydrated } from "@/lib/hooks/useHydrated";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { SubscriptionBanner } from "@/components/layout/SubscriptionBanner";
@@ -45,6 +46,7 @@ function PermissionGate({ children }: { children: React.ReactNode }) {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const hydrated = useHydrated();
 
   // Zone connectée rendue côté client uniquement (session lue dans localStorage).
@@ -58,11 +60,25 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-zinc-50 dark:bg-zinc-950">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+      {/* Sidebar fixe à partir de la tablette, tiroir sur téléphone. */}
+      <div className="hidden md:flex">
+        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+      </div>
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-64 p-0 md:hidden">
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <Sidebar
+            collapsed={false}
+            mobile
+            onToggle={() => setMobileNavOpen(false)}
+            onNavigate={() => setMobileNavOpen(false)}
+          />
+        </SheetContent>
+      </Sheet>
 
       {/* Main column */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Header />
+        <Header onMenuClick={() => setMobileNavOpen(true)} />
         <SubscriptionBanner />
         <main className="flex-1 overflow-y-auto">
           <PermissionGate>{children}</PermissionGate>
