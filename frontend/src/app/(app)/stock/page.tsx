@@ -15,6 +15,7 @@ import { StockTable } from "@/components/dashboard/StockTable";
 import { ProductSheet } from "@/components/dashboard/ProductSheet";
 import { NewProductSheet } from "@/components/dashboard/NewProductSheet";
 import { useStockPositions } from "@/lib/hooks/useDashboard";
+import { useStockAlerts } from "@/lib/hooks/useNotifications";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useQueryClient } from "@tanstack/react-query";
 import type { StockPosition } from "@/lib/types/api";
@@ -51,17 +52,18 @@ export default function StockPage() {
     queryClient.invalidateQueries({ queryKey: ["stock"] });
   }
 
-  const positions = stockData?.results ?? [];
-  const ruptureCount = positions.filter((p) => p.quantity === 0).length;
-  const lowStockCount = positions.filter(
-    (p) => p.quantity > 0 && p.quantity <= p.product.minimum_stock
-  ).length;
-  const normalStockCount = positions.filter(
-    (p) => p.quantity > p.product.minimum_stock
-  ).length;
+  // Compteurs calculés par le serveur sur tout le dépôt (et non sur la page affichée),
+  // avec la même règle que les alertes et le dashboard.
+  const { data: alertSummary } = useStockAlerts({ warehouse: warehouseFilter, page_size: 1 });
+  const ruptureCount = alertSummary?.summary.out ?? 0;
+  const lowStockCount = alertSummary?.summary.low ?? 0;
+  const normalStockCount = Math.max(
+    0,
+    (alertSummary?.summary.total ?? 0) - ruptureCount - lowStockCount
+  );
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -102,6 +104,14 @@ export default function StockPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             Actualiser
           </button>
+
+          <Link
+            href="/stock/alertes"
+            className="flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-xs transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
+          >
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Alertes
+          </Link>
 
           <Link
             href="/stock/transferts"

@@ -397,15 +397,15 @@ export interface DashboardKpis {
 }
 
 // ─── Stock Level Badge ─────────────────────────────────────────────────────
-export type StockLevel = "normal" | "low" | "critical" | "out_of_stock";
+export type StockLevel = "normal" | "low" | "out_of_stock";
 
-export function getStockLevel(
-  quantity: number,
-  minimumStock: number
-): StockLevel {
+/**
+ * Même règle que le backend (apps/inventory/stock_levels.py), les alertes et le dashboard :
+ * rupture = 0 ; faible = 0 < quantité ≤ seuil (si le produit a un seuil) ; sinon normal.
+ */
+export function getStockLevel(quantity: number, minimumStock: number): StockLevel {
   if (quantity === 0) return "out_of_stock";
-  if (quantity < minimumStock) return "critical";
-  if (quantity < minimumStock * 2) return "low";
+  if (minimumStock > 0 && quantity <= minimumStock) return "low";
   return "normal";
 }
 
@@ -560,4 +560,86 @@ export interface PurchasesReport {
   top_suppliers: { id: string; name: string; total: number; count: number }[];
 }
 
-export type ExportKind = "sales" | "products" | "stock" | "movements" | "purchases";
+export type ExportKind = "sales" | "products" | "stock" | "movements" | "purchases" | "inventory";
+
+// ─── Inventaires ────────────────────────────────────────────────────────────
+export type InventoryStatus = "DRAFT" | "COUNTING" | "REVIEW" | "VALIDATED" | "CANCELLED";
+
+export interface InventoryCount {
+  id: string;
+  reference: string;
+  warehouse: string;
+  warehouse_name: string;
+  category: string | null;
+  category_name: string | null;
+  status: InventoryStatus;
+  notes: string;
+  /** `differences` absent pour les compteurs (comptage à l'aveugle). */
+  stats: { lines: number; counted: number; uncounted: number; differences?: number };
+  created_by_name: string | null;
+  started_at: string | null;
+  validated_by_name: string | null;
+  validated_at: string | null;
+  created_at: string;
+}
+
+export interface InventoryLine {
+  id: string;
+  product: string;
+  product_name: string;
+  product_sku: string;
+  product_barcode: string;
+  unit: string;
+  counted_quantity: number | null;
+  counted_by_name: string | null;
+  counted_at: string | null;
+  /** Visibles uniquement pour les rôles qui valident. */
+  expected_quantity?: number;
+  difference?: number | null;
+  stock_changed?: boolean;
+}
+
+export type CountEntry =
+  | { product: string; counted_quantity: number | null }
+  | { code: string; add: number };
+
+// ─── Alertes, notifications, audit ──────────────────────────────────────────
+export interface StockAlert {
+  id: string;
+  kind: "out" | "low";
+  product: string;
+  product_name: string;
+  product_sku: string;
+  unit: string;
+  warehouse: string;
+  warehouse_name: string;
+  quantity: number;
+  minimum_stock: number;
+}
+
+export interface StockAlertPage extends PaginatedResponse<StockAlert> {
+  summary: { out: number; low: number; total: number };
+}
+
+export interface AppNotification {
+  id: string;
+  kind: "STOCK_LOW" | "STOCK_OUT" | "PURCHASE_RECEIVED" | "TRANSFER_COMPLETED" | "INVENTORY_REVIEW";
+  message: string;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  created_at: string;
+  user_name: string;
+  action: string;
+  action_label: string;
+  entity_type: string;
+  entity_id: string;
+  entity_label: string;
+  old_values: Record<string, unknown> | null;
+  new_values: Record<string, unknown> | null;
+  ip_address: string | null;
+}

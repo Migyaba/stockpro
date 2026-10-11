@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import Count, Sum
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -56,12 +57,14 @@ class SaleViewSet(TenantViewSet):
 
     @action(detail=True, methods=["post"])
     @idempotent
+    @transaction.atomic
     def complete(self, request, pk=None):
         sale = complete_sale(self.get_object(), request.user, request.membership)
         write_audit(request, action=AuditAction.VALIDATE, entity=sale)
         return Response(self.get_serializer(sale).data)
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def cancel(self, request, pk=None):
         sale = cancel_sale(self.get_object(), request.user, request.membership)
         write_audit(request, action=AuditAction.CANCEL, entity=sale)

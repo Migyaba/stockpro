@@ -4,7 +4,7 @@ from rest_framework.views import APIView
 
 from apps.core.permissions import require_permission
 from apps.core.viewsets import restrict_to_allowed_warehouses
-from apps.inventory.models import StockMovement, StockPosition, Transfer
+from apps.inventory.models import InventoryCount, StockMovement, StockPosition, Transfer
 from apps.purchases.models import Purchase, PurchaseReceipt
 from apps.reports.exports import csv_response
 from apps.reports.periods import parse_period
@@ -168,6 +168,40 @@ class ExportView(APIView):
             rows,
         )
 
+    def export_inventory(self, request):
+        inventory = (
+            restrict_to_allowed_warehouses(
+                InventoryCount.objects.filter(organization=request.organization), request.membership
+            )
+            .select_related("warehouse")
+            .filter(pk=request.query_params.get("inventory"))
+            .first()
+            if request.query_params.get("inventory")
+            else None
+        )
+        if inventory is None:
+            return Response(
+                {"error": {"code": "not_found", "message": "Inventaire introuvable."}}, status=404
+            )
+        show_cost = request.membership.has_perm("prices.view_cost")
+        header = ["Produit", "SKU", "Stock théorique", "Stock réel", "Écart"]
+        if show_cost:
+            header += ["Prix d'achat", "Valeur de l'écart"]
+        lines = inventory.lines.select_related("product").order_by("product__name")
+
+        def row(line):
+            counted = "" if line.counted_quantity is None else line.counted_quantity
+            difference = "" if line.difference is None else line.difference
+            values = [line.product.name, line.product.sku, line.expected_quantity, counted, difference]
+            if show_cost:
+                value = "" if line.difference is None else line.difference * line.product.purchase_price
+                values += [line.product.purchase_price, value]
+            return values
+
+        return csv_response(
+            f"inventaire_{inventory.reference}.csv", header, (row(line) for line in lines)
+        )
+
     def export_purchases(self, request):
         date_from, date_to = self._period(request)
         purchases = ordered_purchases(
@@ -193,7 +227,7 @@ class ExportView(APIView):
 
 def _document_references(org, movements):
     """Référence lisible (V-000012, TR-000003…) des documents à l'origine des mouvements."""
-    ids = {"sale": set(), "purchase_receipt": set(), "transfer": set()}
+    ids = {"sale": set(), "purchase_receipt": set(), "transfer": set(), "inventory": set()}
     for m in movements:
         if m.reference_type in ids and m.reference_id:
             ids[m.reference_type].add(m.reference_id)
@@ -204,6 +238,10 @@ def _document_references(org, movements):
         "id", "reference"
     ):
         labels[("transfer", str(pk))] = ref
+    for pk, ref in InventoryCount.objects.filter(organization=org, id__in=ids["inventory"]).values_list(
+        "id", "reference"
+    ):
+        labels[("inventory", str(pk))] = ref
     receipts = PurchaseReceipt.objects.filter(organization=org, id__in=ids["purchase_receipt"]).annotate(
         purchase_ref=F("purchase__reference")
     )

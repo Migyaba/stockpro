@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Boxes,
   BarChart3,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Stock", href: "/stock", icon: Boxes },
   { label: "Achats", href: "/achats", icon: Truck },
   { label: "Contacts", href: "/contacts", icon: Users },
+  { label: "Inventaires", href: "/inventaires", icon: ClipboardCheck },
   { label: "Rapports", href: "/rapports", icon: BarChart3 },
 ];
 

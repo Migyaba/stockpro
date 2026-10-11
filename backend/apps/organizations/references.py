@@ -7,6 +7,7 @@ PREFIXES = {
     "PURCHASE": "A",
     "TRANSFER": "TR",
     "RECEIPT": "RE",
+    "INVENTORY": "INV",
 }
 
 

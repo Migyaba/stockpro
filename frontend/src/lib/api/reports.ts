@@ -6,7 +6,9 @@ import type {
   SalesReport,
 } from "@/lib/types/api";
 
-function clean(params: ReportPeriodParams): Record<string, string> {
+type ExportParams = Partial<ReportPeriodParams> & { inventory?: string };
+
+function clean(params: ExportParams): Record<string, string> {
   return Object.fromEntries(Object.entries(params).filter(([, v]) => !!v)) as Record<string, string>;
 }
 
@@ -25,7 +27,7 @@ export async function fetchPurchasesReport(params: ReportPeriodParams): Promise<
 }
 
 // Téléchargement authentifié (le JWT est dans l'en-tête, pas dans l'URL).
-export async function downloadExport(kind: ExportKind, params: ReportPeriodParams): Promise<void> {
+export async function downloadExport(kind: ExportKind, params: ExportParams): Promise<void> {
   const response = await apiClient.get<Blob>(`/reports/export/${kind}/`, {
     params: clean(params),
     responseType: "blob",

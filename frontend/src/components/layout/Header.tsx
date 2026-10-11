@@ -5,12 +5,10 @@ import {
   Menu,
   Sun,
   Moon,
-  Bell,
   ChevronDown,
   LogOut,
   User,
   Building2,
-  AlertTriangle,
   Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils/format";
@@ -24,8 +22,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { useDashboardKpis } from "@/lib/hooks/useDashboard";
 import { useLogout } from "@/lib/hooks/useAuth";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 const ROLE_LABELS: Record<string, string> = {
   OWNER: "Propriétaire",
@@ -60,9 +58,6 @@ export function Header({ pageTitle, onMenuClick }: HeaderProps) {
     warehouses,
     setActiveWarehouse,
   } = useAuthStore();
-  const { data: kpis } = useDashboardKpis();
-
-  const lowStockCount = kpis?.low_stock_count ?? 0;
 
   const logoutMutation = useLogout();
 
@@ -137,18 +132,7 @@ export function Header({ pageTitle, onMenuClick }: HeaderProps) {
 
       {/* Right: notifications + theme + profile */}
       <div className="flex items-center gap-1">
-        {/* Stock alert bell */}
-        <button
-          className="relative flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
-          aria-label="Alertes stock"
-        >
-          <Bell className="h-4 w-4" />
-          {lowStockCount > 0 && (
-            <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
-              {lowStockCount > 9 ? "9+" : lowStockCount}
-            </span>
-          )}
-        </button>
+        <NotificationBell />
 
         {/* Theme toggle */}
         <button

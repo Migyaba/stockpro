@@ -90,7 +90,7 @@ export default function ContactsPage() {
   const totalCitiesCount = allCities.length;
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       {/* ─── Header ────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>

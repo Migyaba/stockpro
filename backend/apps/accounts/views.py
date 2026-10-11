@@ -37,7 +37,7 @@ from apps.accounts.tokens import issue_tokens
 from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
 from apps.core.permissions import ROLE_PERMISSIONS, require_permission
-from apps.core.viewsets import TenantViewSet
+from apps.core.viewsets import AuditedViewSetMixin, TenantViewSet
 
 logger = logging.getLogger(__name__)
 
@@ -295,7 +295,7 @@ class PasswordResetView(APIView):
         return Response({"ok": True})
 
 
-class MembershipViewSet(TenantViewSet):
+class MembershipViewSet(AuditedViewSetMixin, TenantViewSet):
     serializer_class = MembershipSerializer
     queryset = Membership.objects.select_related("user").all()
     http_method_names = ["get", "patch", "head", "options"]
@@ -327,6 +327,23 @@ class MembershipViewSet(TenantViewSet):
                     raise InvalidStateTransition("L'organisation doit conserver au moins un owner actif.")
                 return super().partial_update(request, *args, **kwargs)
         return super().partial_update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        # Le mixin journalise rôle et activation ; les dépôts autorisés sont
+        # des liens séparés, tracés ici dans la même transaction.
+        before = sorted(str(i) for i in serializer.instance.warehouse_ids())
+        with transaction.atomic():
+            super().perform_update(serializer)
+            after = sorted(str(i) for i in serializer.instance.warehouse_ids())
+            if "warehouse_ids" in serializer.validated_data and before != after:
+                write_audit(
+                    self.request,
+                    action=AuditAction.UPDATE,
+                    entity=serializer.instance,
+                    label=serializer.instance.user.email,
+                    old_values={"warehouse_ids": before},
+                    extra={"warehouse_ids": after},
+                )
 
 
 class InvitationViewSet(TenantViewSet):

@@ -44,7 +44,7 @@ export function ChangePasswordForm() {
   return (
     <form
       onSubmit={handleSubmit}
-      className="max-w-md space-y-4 rounded-xl border border-zinc-200/80 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900"
+      className="space-y-4 rounded-xl border border-zinc-200/80 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900"
     >
       <div className="flex items-center gap-2">
         <KeyRound className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
@@ -57,40 +57,42 @@ export function ChangePasswordForm() {
         </p>
       )}
 
-      <label className="block space-y-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-        <span>Mot de passe actuel</span>
-        <input
-          type="password"
-          autoComplete="current-password"
-          required
-          value={oldPassword}
-          onChange={(e) => setOldPassword(e.target.value)}
-          className={INPUT_CLASS}
-        />
-      </label>
-      <label className="block space-y-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-        <span>Nouveau mot de passe (8 caractères minimum)</span>
-        <input
-          type="password"
-          autoComplete="new-password"
-          required
-          minLength={8}
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          className={INPUT_CLASS}
-        />
-      </label>
-      <label className="block space-y-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-        <span>Confirmation</span>
-        <input
-          type="password"
-          autoComplete="new-password"
-          required
-          value={confirmation}
-          onChange={(e) => setConfirmation(e.target.value)}
-          className={INPUT_CLASS}
-        />
-      </label>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <label className="block space-y-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+          <span>Mot de passe actuel</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            required
+            value={oldPassword}
+            onChange={(e) => setOldPassword(e.target.value)}
+            className={INPUT_CLASS}
+          />
+        </label>
+        <label className="block space-y-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+          <span>Nouveau mot de passe (8 caractères minimum)</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            className={INPUT_CLASS}
+          />
+        </label>
+        <label className="block space-y-1.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+          <span>Confirmation</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            required
+            value={confirmation}
+            onChange={(e) => setConfirmation(e.target.value)}
+            className={INPUT_CLASS}
+          />
+        </label>
+      </div>
 
       <button
         type="submit"

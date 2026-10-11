@@ -4,13 +4,13 @@ from django.db.models.functions import Coalesce
 
 from apps.audit.services import AuditAction, write_audit
 from apps.core.permissions import require_permission
-from apps.core.viewsets import TenantViewSet
+from apps.core.viewsets import AuditedViewSetMixin, TenantViewSet
 from apps.inventory.services import initialize_stock
 from apps.products.models import Category, Product
 from apps.products.serializers import CategorySerializer, ProductSerializer
 
 
-class CategoryViewSet(TenantViewSet):
+class CategoryViewSet(AuditedViewSetMixin, TenantViewSet):
     serializer_class = CategorySerializer
     queryset = Category.objects.all()
     search_fields = ["name"]
@@ -24,12 +24,8 @@ class CategoryViewSet(TenantViewSet):
             code = "products.deactivate"
         return [require_permission(code)()]
 
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=["is_active", "updated_at"])
 
-
-class ProductViewSet(TenantViewSet):
+class ProductViewSet(AuditedViewSetMixin, TenantViewSet):
     serializer_class = ProductSerializer
     queryset = Product.objects.select_related("category").annotate(
         total_stock=Coalesce(Sum("positions__quantity"), 0)
@@ -69,8 +65,4 @@ class ProductViewSet(TenantViewSet):
     def perform_update(self, serializer):
         serializer.validated_data.pop("initial_quantity", None)
         serializer.validated_data.pop("initial_warehouse", None)
-        serializer.save()
-
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=["is_active", "updated_at"])
+        super().perform_update(serializer)

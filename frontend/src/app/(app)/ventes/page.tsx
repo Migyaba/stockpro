@@ -91,7 +91,7 @@ export default function VentesPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       {/* Page Title & Header Actions */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -119,16 +119,16 @@ export default function VentesPage() {
       </div>
 
       {/* KPI Stats Strip */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         {/* CA Validé */}
-        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 shadow-xs">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-500">Chiffre d&apos;affaires</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
               <TrendingUp className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
+          <p className="mt-3 text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
             {formatFCFA(totalSalesAmount)}
           </p>
           <span className="mt-1 block text-xs text-zinc-400">
@@ -137,14 +137,14 @@ export default function VentesPage() {
         </div>
 
         {/* Ventes Finalisées */}
-        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 shadow-xs">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-500">Ventes validées</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
               <CheckCircle2 className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
+          <p className="mt-3 text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
             {completedCount}
           </p>
           <span className="mt-1 block text-xs text-emerald-600 dark:text-emerald-400">
@@ -153,14 +153,14 @@ export default function VentesPage() {
         </div>
 
         {/* Brouillons en attente */}
-        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 shadow-xs">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-500">Brouillons en attente</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
               <Clock className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
+          <p className="mt-3 text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
             {draftCount}
           </p>
           <span className="mt-1 block text-xs text-amber-600 dark:text-amber-400">
@@ -169,14 +169,14 @@ export default function VentesPage() {
         </div>
 
         {/* Panier Moyen */}
-        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-5 shadow-xs">
+        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 p-4 sm:p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-500">Panier moyen</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400">
               <Receipt className="h-4 w-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
+          <p className="mt-3 text-lg sm:text-2xl font-bold text-zinc-900 dark:text-white tabular-nums tracking-tight">
             {formatFCFA(averageTicket)}
           </p>
           <span className="mt-1 block text-xs text-zinc-400">
