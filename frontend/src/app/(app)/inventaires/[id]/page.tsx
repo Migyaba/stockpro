@@ -74,7 +74,7 @@ export default function InventoryDetailPage() {
   ];
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-1">
           <Link

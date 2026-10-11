@@ -61,7 +61,7 @@ export default function StockPage() {
   ).length;
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

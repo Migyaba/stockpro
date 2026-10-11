@@ -51,7 +51,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-6">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       {/* Page header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

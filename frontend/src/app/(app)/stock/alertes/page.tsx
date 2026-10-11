@@ -27,7 +27,7 @@ export default function StockAlertsPage() {
   ];
 
   return (
-    <div className="flex flex-col gap-6 p-4 md:p-8">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       <div>
         <Link
           href="/stock"

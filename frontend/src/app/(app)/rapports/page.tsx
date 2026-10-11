@@ -109,7 +109,7 @@ export default function RapportsPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-6 p-4 md:p-8">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">

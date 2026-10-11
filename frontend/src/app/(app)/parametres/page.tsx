@@ -154,7 +154,7 @@ export default function ParametresPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="flex w-full flex-col gap-6 p-4 md:p-6 lg:p-8">
       {/* ─── Header ────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -272,7 +272,7 @@ export default function ParametresPage() {
 
       {/* ─── Tab 1 : Organisation ─────────────────────────────────────────── */}
       {currentTab === "org" && (
-        <div className="rounded-xl border border-zinc-200/80 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 max-w-3xl">
+        <div className="rounded-xl border border-zinc-200/80 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
           <form onSubmit={handleSaveOrg} className="space-y-5">
             <div className="border-b border-zinc-200 dark:border-zinc-800 pb-4">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-50">
