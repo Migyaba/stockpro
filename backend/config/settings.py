@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.suppliers",
     "apps.purchases",
     "apps.sales",
+    "apps.reports",
 ]
 
 MIDDLEWARE = [
@@ -280,6 +281,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "Clients", "description": "Fiches clients (simple, hors CRM)."},
         {"name": "Fournisseurs", "description": "Fiches fournisseurs."},
         {"name": "Dashboard", "description": "Indicateurs du jour."},
+        {"name": "Rapports", "description": "Synthèses par période et exports CSV."},
         {"name": "Système", "description": "Santé du service."},
     ],
     "SWAGGER_UI_SETTINGS": {

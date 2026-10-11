@@ -56,5 +56,12 @@ class DashboardSerializer(serializers.Serializer):
     out_of_stock_count = serializers.IntegerField()
     pending_purchases = serializers.IntegerField(required=False)
     warehouses_count = serializers.IntegerField()
+    sales_week_total = serializers.IntegerField()
+    sales_month_total = serializers.IntegerField()
+    sales_month_count = serializers.IntegerField()
+    sales_month_evolution_pct = serializers.FloatField(allow_null=True)
+    purchases_month_total = serializers.IntegerField()
+    margin_month = serializers.IntegerField(allow_null=True, required=False)
+    margin_month_pct = serializers.FloatField(allow_null=True, required=False)
     recent_sales = DashboardSaleSerializer(many=True)
 

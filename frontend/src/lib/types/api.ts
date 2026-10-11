@@ -376,13 +376,24 @@ export interface ProductCreatePayload {
 
 // ─── Dashboard ─────────────────────────────────────────────────────────────
 export interface DashboardKpis {
+  products_count: number;
+  /** 0 pour les rôles sans accès aux coûts. */
   stock_value: number;
   sales_today: number;
-  low_stock_count: number;
-  pending_purchases: number;
   sales_today_count: number;
-  stock_value_change_pct: number | null;
-  sales_today_change_pct: number | null;
+  /** Sous le seuil minimum mais pas en rupture. */
+  low_stock_count: number;
+  out_of_stock_count: number;
+  pending_purchases: number;
+  warehouses_count: number;
+  sales_week_total: number;
+  sales_month_total: number;
+  sales_month_count: number;
+  sales_month_evolution_pct: number | null;
+  purchases_month_total: number;
+  /** null pour les rôles sans accès aux coûts. */
+  margin_month: number | null;
+  margin_month_pct: number | null;
 }
 
 // ─── Stock Level Badge ─────────────────────────────────────────────────────
@@ -493,3 +504,60 @@ export interface CreateTransferPayload {
   notes?: string;
   items: { product: string; quantity: number }[];
 }
+
+// ─── Rapports (calculés côté serveur) ───────────────────────────────────────
+export interface ReportPeriodParams {
+  date_from: string;
+  date_to: string;
+  warehouse?: string;
+}
+
+export interface SalesReportProduct {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  quantity: number;
+  revenue: number;
+  /** Absents si le rôle n'a pas accès aux coûts. */
+  cost?: number;
+  margin?: number;
+}
+
+export interface SalesReport {
+  period: { date_from: string; date_to: string };
+  previous_period: { date_from: string; date_to: string };
+  totals: {
+    revenue: number;
+    revenue_excl_tax: number;
+    tax: number;
+    discount: number;
+    count: number;
+    average_ticket: number;
+    previous_revenue: number;
+    revenue_evolution_pct: number | null;
+    cost?: number;
+    margin?: number;
+    margin_pct?: number | null;
+  };
+  series: { date: string; revenue: number; count: number; margin?: number }[];
+  top_products: SalesReportProduct[];
+  least_products: SalesReportProduct[];
+  by_warehouse: { id: string; name: string; revenue: number; count: number }[];
+  by_category: { name: string; revenue: number; quantity: number }[];
+  products: SalesReportProduct[];
+}
+
+export interface PurchasesReport {
+  period: { date_from: string; date_to: string };
+  totals: {
+    ordered: number;
+    count: number;
+    received_value: number;
+    previous_ordered: number;
+    ordered_evolution_pct: number | null;
+  };
+  top_suppliers: { id: string; name: string; total: number; count: number }[];
+}
+
+export type ExportKind = "sales" | "products" | "stock" | "movements" | "purchases";
