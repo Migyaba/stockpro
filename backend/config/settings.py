@@ -252,8 +252,14 @@ REST_FRAMEWORK = {
         "auth_login": os.getenv("THROTTLE_AUTH_LOGIN", "10/min"),
         "auth_register": os.getenv("THROTTLE_AUTH_REGISTER", "20/hour"),
         "auth_password": os.getenv("THROTTLE_AUTH_PASSWORD", "10/hour"),
+        "auth_refresh": os.getenv("THROTTLE_AUTH_REFRESH", "60/min"),
+        "auth_password_change": os.getenv("THROTTLE_AUTH_PASSWORD_CHANGE", "10/hour"),
     },
 }
+# Email de réinitialisation envoyé hors de la requête : la durée de l'envoi
+# SMTP ne doit pas révéler si le compte existe. Synchrone en test (mail.outbox).
+PASSWORD_RESET_EMAIL_ASYNC = "test" not in sys.argv
+
 if "test" in sys.argv:
     REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
         scope: "10000/min" for scope in REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]

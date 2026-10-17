@@ -1,6 +1,7 @@
 from django.db import transaction
 from django.db.models import Count, F, Q
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -8,6 +9,7 @@ from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
 from apps.core.idempotency import idempotent
 from apps.core.pagination import PageNumberPagination
+from apps.core.params import uuid_param
 from apps.core.permissions import require_permission
 from apps.notifications.models import NotificationKind
 from apps.notifications.services import notify
@@ -91,6 +93,8 @@ class MovementViewSet(TenantViewSet):
     queryset = StockMovement.objects.select_related("product", "warehouse", "created_by").all()
     http_method_names = ["get", "head", "options"]
     filterset_fields = ["warehouse", "product", "type"]
+    # Pas de tri sur unit_cost : il permettrait de classer des coûts masqués.
+    ordering_fields = ["created_at", "quantity", "type"]
 
     def get_permissions(self):
         return [require_permission("stock.view")()]
@@ -146,6 +150,9 @@ class TransferViewSet(TenantViewSet):
     def cancel(self, request, pk=None):
         with transaction.atomic():
             transfer = Transfer.objects.select_for_update().get(pk=self.get_object().pk)
+            # Annuler revient au dépôt expéditeur, pas au seul destinataire.
+            if not request.membership.can_access_warehouse(transfer.source):
+                raise PermissionDenied("Vous n'avez pas accès au dépôt expéditeur.")
             if transfer.status != TransferStatus.DRAFT:
                 raise InvalidStateTransition("Seul un brouillon peut être annulé.")
             transfer.status = TransferStatus.CANCELLED
@@ -291,8 +298,9 @@ class StockAlertView(APIView):
             StockPosition.objects.filter(organization=request.organization, product__is_active=True),
             request.membership,
         ).select_related("product", "warehouse")
-        if request.query_params.get("warehouse"):
-            positions = positions.filter(warehouse_id=request.query_params["warehouse"])
+        warehouse_id = uuid_param(request, "warehouse")
+        if warehouse_id:
+            positions = positions.filter(warehouse_id=warehouse_id)
         out, low = OUT_OF_STOCK_Q, LOW_Q
         counts = {
             "out": positions.filter(out).count(),

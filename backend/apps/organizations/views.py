@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audit.services import AuditAction, diff, snapshot, write_audit
-from apps.core.permissions import require_permission
+from apps.core.permissions import HasPermission, require_permission
 from apps.core.viewsets import restrict_to_allowed_warehouses
 from apps.inventory.models import StockPosition
 from apps.inventory.stock_levels import LOW_Q, OUT_OF_STOCK_Q
@@ -25,7 +25,9 @@ class OrganizationMeView(APIView):
         return Response(OrganizationSerializer(request.organization).data)
 
     def patch(self, request):
-        if not request.membership.has_perm("settings.update"):
+        # Même règle que les autres écritures : bloquée si l'organisation est
+        # suspendue (settings.update n'est pas dans SAFE_WHEN_SUSPENDED).
+        if not HasPermission("settings.update").has_permission(request, self):
             raise PermissionDenied()
         serializer = OrganizationSerializer(
             request.organization, data=request.data, partial=True

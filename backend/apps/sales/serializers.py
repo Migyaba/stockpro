@@ -4,7 +4,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
-from apps.core.serializers import TenantScopedSerializerMixin
+from apps.core.serializers import TenantScopedSerializerMixin, ensure_active_warehouse
 from apps.organizations.references import next_reference
 from apps.sales.models import Sale, SaleItem
 from apps.sales.services import recompute_sale_totals
@@ -83,7 +83,7 @@ class SaleSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
     def validate_warehouse(self, warehouse):
         if not self.context["request"].membership.can_access_warehouse(warehouse):
             raise WarehouseForbidden()
-        return warehouse
+        return ensure_active_warehouse(warehouse)
 
     @transaction.atomic
     def create(self, validated):

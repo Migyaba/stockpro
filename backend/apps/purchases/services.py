@@ -94,11 +94,17 @@ def receive_purchase(purchase: Purchase, lines: list[dict], user, membership):
     if not lines:
         raise InvalidStateTransition("Aucune quantité à réceptionner.")
 
+    resolved = []
     for line in lines:
         item = items_by_id.get(str(line["purchase_item_id"]))
         if item is None:
             raise InvalidStateTransition("Ligne d'achat introuvable.")
-        qty = line["quantity"]
+        resolved.append((item, line["quantity"]))
+    # Verrous de stock pris par produit croissant, comme ventes et transferts :
+    # deux réceptions concurrentes ne peuvent pas s'interbloquer.
+    resolved.sort(key=lambda pair: str(pair[0].product_id))
+
+    for item, qty in resolved:
         remaining = item.quantity - item.quantity_received
         if qty > remaining:
             raise InvalidStateTransition(

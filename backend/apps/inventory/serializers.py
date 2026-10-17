@@ -3,7 +3,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
-from apps.core.serializers import TenantScopedSerializerMixin
+from apps.core.serializers import TenantScopedSerializerMixin, ensure_active_warehouse
 from apps.inventory.models import (
     OPEN_INVENTORY_STATUSES,
     InventoryCount,
@@ -142,6 +142,8 @@ class TransferSerializer(TenantScopedSerializerMixin, serializers.ModelSerialize
         for warehouse in (source, destination):
             if warehouse and not membership.can_access_warehouse(warehouse):
                 raise WarehouseForbidden()
+        ensure_active_warehouse(source, "source")
+        ensure_active_warehouse(destination, "destination")
         return attrs
 
     @transaction.atomic
@@ -211,6 +213,7 @@ class InventoryCountSerializer(TenantScopedSerializerMixin, serializers.ModelSer
         request = self.context["request"]
         if not request.membership.can_access_warehouse(warehouse):
             raise WarehouseForbidden()
+        ensure_active_warehouse(warehouse)
         open_inventory = InventoryCount.objects.filter(
             warehouse=warehouse, status__in=OPEN_INVENTORY_STATUSES
         ).first()

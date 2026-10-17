@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import threading
 
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
@@ -10,7 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -113,6 +114,8 @@ class LoginView(APIView):
 class RefreshView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_refresh"
     serializer_class = RefreshSerializer
 
     def post(self, request):
@@ -221,6 +224,8 @@ class MyMembershipView(APIView):
 
 
 class ChangePasswordView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password_change"
     serializer_class = ChangePasswordSerializer
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
@@ -235,6 +240,24 @@ class ChangePasswordView(APIView):
         # Les jetons existants (autres appareils compris) ne sont plus valides :
         # on renvoie un nouveau couple pour garder la session en cours.
         return Response({"ok": True, **issue_tokens(request.user, request.membership)})
+
+
+def _send_password_reset_email(email, first_name, link):
+    try:
+        send_mail(
+            subject="STOCKPRO — Réinitialisation de votre mot de passe",
+            message=(
+                f"Bonjour {first_name},\n\n"
+                "Pour choisir un nouveau mot de passe, ouvrez ce lien :\n"
+                f"{link}\n\n"
+                "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."
+            ),
+            from_email=None,
+            recipient_list=[email],
+        )
+    except Exception:
+        # Réponse identique dans tous les cas : ne pas révéler l'existence du compte.
+        logger.exception("Échec d'envoi de l'email de réinitialisation.")
 
 
 class PasswordForgotView(APIView):
@@ -255,21 +278,10 @@ class PasswordForgotView(APIView):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
         link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?uid={uid}&token={token}"
-        try:
-            send_mail(
-                subject="STOCKPRO — Réinitialisation de votre mot de passe",
-                message=(
-                    f"Bonjour {user.first_name},\n\n"
-                    "Pour choisir un nouveau mot de passe, ouvrez ce lien :\n"
-                    f"{link}\n\n"
-                    "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."
-                ),
-                from_email=None,
-                recipient_list=[user.email],
-            )
-        except Exception:
-            # Réponse identique dans tous les cas : ne pas révéler l'existence du compte.
-            logger.exception("Échec d'envoi de l'email de réinitialisation.")
+        if settings.PASSWORD_RESET_EMAIL_ASYNC:
+            threading.Thread(target=_send_password_reset_email, args=(user.email, user.first_name, link), daemon=True).start()
+        else:
+            _send_password_reset_email(user.email, user.first_name, link)
         return Response({"ok": True})
 
 
@@ -319,7 +331,13 @@ class MembershipViewSet(AuditedViewSetMixin, TenantViewSet):
             raise PermissionDenied()
         instance = self.get_object()
         new_role = request.data.get("role", instance.role)
-        deactivating = str(request.data.get("is_active", instance.is_active)).lower() in {"false", "0"}
+        # Même lecture que le sérialiseur (« off », « no », « f »… valent False).
+        try:
+            deactivating = not serializers.BooleanField().to_internal_value(
+                request.data.get("is_active", instance.is_active)
+            )
+        except serializers.ValidationError:
+            deactivating = False
         if instance.pk == request.membership.pk:
             raise InvalidStateTransition("Vous ne pouvez pas modifier votre propre rôle ou accès.")
         touches_owner = instance.role == Role.OWNER or new_role == Role.OWNER

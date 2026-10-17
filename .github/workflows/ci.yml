@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Les jobs ne font que lire le dépôt.
+permissions:
+  contents: read
+
 jobs:
   backend-tests:
     name: Backend Tests

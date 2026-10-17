@@ -1,5 +1,5 @@
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 
 from apps.audit.services import AuditAction, write_audit
@@ -27,12 +27,22 @@ class CategoryViewSet(AuditedViewSetMixin, TenantViewSet):
 
 class ProductViewSet(AuditedViewSetMixin, TenantViewSet):
     serializer_class = ProductSerializer
-    queryset = Product.objects.select_related("category").annotate(
-        total_stock=Coalesce(Sum("positions__quantity"), 0)
-    )
+    queryset = Product.objects.select_related("category")
     search_fields = ["name", "sku", "barcode"]
     filterset_fields = ["is_active", "category"]
     ordering_fields = ["name", "sku", "created_at", "total_stock"]
+
+    def get_queryset(self):
+        # Stock total limité aux dépôts du membre : un membre restreint ne doit
+        # pas déduire le stock des autres boutiques.
+        qs = super().get_queryset()
+        membership = getattr(self.request, "membership", None)
+        extra = {}
+        if membership is not None and membership.role not in {"OWNER", "ADMINISTRATOR"}:
+            ids = membership.warehouse_ids()
+            if ids:
+                extra["filter"] = Q(positions__warehouse_id__in=ids)
+        return qs.annotate(total_stock=Coalesce(Sum("positions__quantity", **extra), 0))
 
     def get_permissions(self):
         mapping = {

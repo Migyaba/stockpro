@@ -109,6 +109,9 @@ class LoginSerializer(serializers.Serializer):
         try:
             user = User.objects.get(email__iexact=attrs["email"])
         except User.DoesNotExist as exc:
+            # Même coût qu'un vrai contrôle (Argon2) : le temps de réponse ne
+            # doit pas révéler si le compte existe (cf. ModelBackend de Django).
+            User().set_password(attrs["password"])
             raise serializers.ValidationError("Identifiants incorrects.") from exc
         if not user.is_active or not user.check_password(attrs["password"]):
             raise serializers.ValidationError("Identifiants incorrects.")

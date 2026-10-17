@@ -36,6 +36,9 @@ class SubscriptionStatusView(APIView):
     def get(self, request):
         org = request.organization
         now = timezone.now()
+        # Tous les rôles voient le statut (bandeau d'abonnement) ; seul celui qui
+        # gère la facturation voit les paiements et déclenche une vérification.
+        can_manage_billing = request.membership.has_perm("billing.manage")
 
         # Si le paiement le plus récent est en attente, interroger AlphaPay en direct
         # (au plus une fois toutes les 15 s par paiement pour ne pas saturer l'API).
@@ -44,7 +47,7 @@ class SubscriptionStatusView(APIView):
             .order_by("-created_at")
             .first()
         )
-        if latest_pending and cache.add(f"alphapay-verify:{latest_pending.pk}", 1, 15):
+        if can_manage_billing and latest_pending and cache.add(f"alphapay-verify:{latest_pending.pk}", 1, 15):
             verify_subscription_payment(latest_pending)
             org.refresh_from_db()
 
@@ -68,7 +71,11 @@ class SubscriptionStatusView(APIView):
         monthly_cfg = pricing_map[SubscriptionPlan.MONTHLY]
         quarterly_cfg = pricing_map[SubscriptionPlan.QUARTERLY]
 
-        payments = SubscriptionPayment.objects.filter(organization=org).order_by("-created_at")[:5]
+        payments = (
+            SubscriptionPayment.objects.filter(organization=org).order_by("-created_at")[:5]
+            if can_manage_billing
+            else []
+        )
         payments_data = [
             {
                 "id": str(p.id),

@@ -3,7 +3,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
-from apps.core.serializers import TenantScopedSerializerMixin
+from apps.core.serializers import TenantScopedSerializerMixin, ensure_active_warehouse
 from apps.organizations.references import next_reference
 from apps.purchases.models import Purchase, PurchaseItem
 from apps.purchases.services import recompute_purchase_totals
@@ -78,7 +78,7 @@ class PurchaseSerializer(TenantScopedSerializerMixin, serializers.ModelSerialize
     def validate_warehouse(self, warehouse):
         if not self.context["request"].membership.can_access_warehouse(warehouse):
             raise WarehouseForbidden()
-        return warehouse
+        return ensure_active_warehouse(warehouse)
 
     @transaction.atomic
     def create(self, validated):

@@ -10,11 +10,11 @@ from django.test import TransactionTestCase, override_settings
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 
-from apps.accounts.models import Membership, Role, User
+from apps.accounts.models import Membership, MembershipWarehouse, Role, User
 from apps.core.exceptions import InsufficientStock
 from apps.core.tests import StockProAPITestCase
 from apps.inventory.models import StockMovement, StockPosition, Warehouse
-from apps.organizations.models import Organization, SubscriptionPayment
+from apps.organizations.models import Organization, OrganizationStatus, SubscriptionPayment
 from apps.products.models import Product
 from apps.sales.models import Sale, SaleItem
 from apps.sales.services import complete_sale
@@ -374,6 +374,98 @@ class SessionRevocationTests(SecurityTestCase):
         tokens = {"access": str(access), "refresh": str(legacy)}
         self.assertEqual(self.me_status(tokens), 401)
         self.assertEqual(self.refresh_status(tokens), 401)
+
+
+class AuditFollowUpTests(SecurityTestCase):
+    """Points de l'audit de sécurité : accès par dépôt, entrées invalides,
+    dépôts désactivés, facturation et organisation suspendue."""
+
+    def second_warehouse(self, name="Boutique B", active=True):
+        res = self.client.post("/api/warehouses/", {"name": name, "code": name[-1] + "01"}, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        if not active:
+            Warehouse.objects.filter(id=res.data["id"]).update(is_active=False)
+        return res.data["id"]
+
+    def restrict(self, membership, *warehouse_ids):
+        for wid in warehouse_ids:
+            MembershipWarehouse.objects.create(membership=membership, warehouse_id=wid)
+
+    def test_total_stock_only_counts_allowed_warehouses(self):
+        other = self.second_warehouse()
+        res = self.client.post(
+            "/api/transfers/",
+            {"source": self.warehouse_id, "destination": other, "items": [{"product": self.product_id, "quantity": 5}]},
+            format="json",
+        )
+        self.client.post(f"/api/transfers/{res.data['id']}/complete/")
+        membership, staff = self.member(Role.STAFF)
+        self.restrict(membership, other)
+        self.auth(staff)
+        product = self.client.get(f"/api/products/{self.product_id}/").data
+        self.assertEqual(product["total_stock"], 5)
+        self.auth(self.owner_tokens)
+        self.assertEqual(self.client.get(f"/api/products/{self.product_id}/").data["total_stock"], 20)
+
+    def test_transfer_cancel_requires_access_to_source(self):
+        other = self.second_warehouse()
+        transfer = self.client.post(
+            "/api/transfers/",
+            {"source": self.warehouse_id, "destination": other, "items": [{"product": self.product_id, "quantity": 1}]},
+            format="json",
+        ).data
+        membership, manager = self.member(Role.MANAGER)
+        self.restrict(membership, other)
+        self.auth(manager)
+        self.assertEqual(self.client.post(f"/api/transfers/{transfer['id']}/cancel/").status_code, 403)
+
+    def test_malformed_ids_are_a_400_not_a_500(self):
+        for url in (
+            "/api/alerts/stock/?warehouse=pas-un-uuid",
+            "/api/reports/export/stock/?warehouse=pas-un-uuid",
+            "/api/reports/export/movements/?product=pas-un-uuid",
+            "/api/reports/export/inventory/?inventory=pas-un-uuid",
+        ):
+            self.assertEqual(self.client.get(url).status_code, 400, url)
+
+    def test_no_new_operation_on_a_deactivated_warehouse(self):
+        closed = self.second_warehouse("Boutique C", active=False)
+        res = self.client.post(
+            "/api/sales/", {"warehouse": closed, "items": [{"product": self.product_id, "quantity": 1}]}, format="json"
+        )
+        self.assertEqual(res.status_code, 400)
+        res = self.client.post(
+            "/api/transfers/",
+            {"source": self.warehouse_id, "destination": closed, "items": [{"product": self.product_id, "quantity": 1}]},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_payment_history_is_reserved_to_billing_managers(self):
+        SubscriptionPayment.objects.create(
+            organization=self.org, plan="MONTHLY", amount=5000, reference="SUB-TEST-1"
+        )
+        self.assertEqual(len(self.client.get("/api/billing/subscription/").data["recent_payments"]), 1)
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        res = self.client.get("/api/billing/subscription/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["recent_payments"], [])
+
+    def test_suspended_organization_cannot_change_its_settings(self):
+        Organization.objects.filter(id=self.org.id).update(status=OrganizationStatus.SUSPENDED)
+        res = self.client.patch("/api/organizations/me/", {"name": "Nouveau nom"}, format="json")
+        self.assertEqual(res.status_code, 403)
+
+    def test_refresh_is_throttled(self):
+        cache.clear()
+        self.client.credentials()
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"auth_refresh": "2/min"}):
+            codes = [
+                self.client.post("/api/auth/refresh/", {"refresh": "x"}, format="json").status_code
+                for _ in range(3)
+            ]
+        self.assertEqual(codes[-1], 429)
 
 
 class BillingHardeningTests(SecurityTestCase):

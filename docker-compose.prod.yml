@@ -28,8 +28,9 @@ services:
     volumes:
       - stockpro_minio_data:/data
     ports:
-      # Console d'administration Web de MinIO
-      - "9001:9001"
+      # Console d'administration MinIO : liée à la machine seulement.
+      # Accès depuis votre poste : ssh -L 9001:127.0.0.1:9001 <serveur>
+      - "127.0.0.1:9001:9001"
     networks:
       - stockpro-net
 
@@ -43,7 +44,8 @@ services:
       sleep 3;
       /usr/bin/mc alias set myminio http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
       /usr/bin/mc mb myminio/$${MINIO_BUCKET_NAME:-stockpro-media} --ignore-existing;
-      /usr/bin/mc anonymous set download myminio/$${MINIO_BUCKET_NAME:-stockpro-media};
+      printf '{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"AWS\":[\"*\"]},\"Action\":[\"s3:GetObject\"],\"Resource\":[\"arn:aws:s3:::%s/*\"]}]}' $${MINIO_BUCKET_NAME:-stockpro-media} > /tmp/public-read.json;
+      /usr/bin/mc anonymous set-json /tmp/public-read.json myminio/$${MINIO_BUCKET_NAME:-stockpro-media};
       exit 0;
       "
     environment:
