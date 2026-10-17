@@ -1,11 +1,11 @@
 from django.db import transaction
-from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
-from apps.core.serializers import TenantScopedSerializerMixin
+from apps.core.serializers import TenantScopedSerializerMixin, ensure_active_warehouse
 from apps.organizations.references import next_reference
+from apps.reports.periods import organization_today, validate_document_date
 from apps.sales.models import Sale, SaleItem
 from apps.sales.services import recompute_sale_totals
 
@@ -80,17 +80,20 @@ class SaleSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer):
         ]
         extra_kwargs = {"sale_date": {"required": False}}
 
+    def validate_sale_date(self, value):
+        return validate_document_date(value, self.context["request"].organization)
+
     def validate_warehouse(self, warehouse):
         if not self.context["request"].membership.can_access_warehouse(warehouse):
             raise WarehouseForbidden()
-        return warehouse
+        return ensure_active_warehouse(warehouse)
 
     @transaction.atomic
     def create(self, validated):
         items = validated.pop("items")
         validated.pop("organization", None)
         request = self.context["request"]
-        sale_date = validated.pop("sale_date", None) or timezone.localdate()
+        sale_date = validated.pop("sale_date", None) or organization_today(request.organization)
         sale = Sale.objects.create(
             organization=request.organization,
             reference=next_reference(request.organization, "SALE"),

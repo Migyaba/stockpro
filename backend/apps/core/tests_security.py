@@ -1,18 +1,21 @@
 import threading
-from datetime import date
+import time
+from datetime import date, timedelta
 from unittest import mock, skipUnless
 
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase, override_settings
+from django.utils import timezone
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 
-from apps.accounts.models import Membership, Role, User
+from apps.accounts.models import Membership, MembershipWarehouse, Role, User
 from apps.core.exceptions import InsufficientStock
 from apps.core.tests import StockProAPITestCase
 from apps.inventory.models import StockMovement, StockPosition, Warehouse
-from apps.organizations.models import Organization, SubscriptionPayment
+from apps.organizations.models import Organization, OrganizationStatus, SubscriptionPayment
 from apps.products.models import Product
 from apps.sales.models import Sale, SaleItem
 from apps.sales.services import complete_sale
@@ -39,7 +42,9 @@ class SecurityTestCase(StockProAPITestCase):
 
     def member(self, role, email=None):
         email = email or f"{role.lower()}@example.com"
-        user = User.objects.create_user(email=email, password=PASSWORD, first_name="M", last_name="R")
+        user = User.objects.create_user(
+            email=email, password=PASSWORD, first_name="M", last_name="R", email_verified_at=timezone.now()
+        )
         membership = Membership.objects.create(user=user, organization=self.org, role=role)
         res = self.client.post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
@@ -310,6 +315,397 @@ class AuthHardeningTests(SecurityTestCase):
         self.assertEqual(strong.status_code, 200)
 
 
+class SessionRevocationTests(SecurityTestCase):
+    """Un jeton volé ne doit pas survivre à un changement de mot de passe ni
+    être prolongé indéfiniment par la rotation du refresh."""
+
+    def login(self, email="owner@example.com", password=PASSWORD):
+        res = self.client.post("/api/auth/login/", {"email": email, "password": password}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        return res.data
+
+    def me_status(self, tokens):
+        self.auth(tokens)
+        return self.client.get("/api/auth/me/").status_code
+
+    def refresh_status(self, tokens):
+        self.client.credentials()
+        return self.client.post("/api/auth/refresh/", {"refresh": tokens["refresh"]}, format="json").status_code
+
+    def test_password_change_revokes_other_sessions_and_keeps_current_one(self):
+        other_device = self.login()
+        self.auth(self.owner_tokens)
+        res = self.client.post(
+            "/api/auth/password/change/",
+            {"old_password": PASSWORD, "new_password": "Nouveau-Secret-42"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.me_status(other_device), 401)
+        self.assertEqual(self.refresh_status(other_device), 401)
+        self.assertEqual(self.me_status(self.owner_tokens), 401)
+        self.assertEqual(self.me_status(res.data), 200)
+
+    def test_password_reset_revokes_existing_tokens(self):
+        self.client.credentials()
+        self.client.post("/api/auth/password/forgot/", {"email": "owner@example.com"}, format="json")
+        link = next(line for line in mail.outbox[0].body.splitlines() if "reset-password" in line)
+        query = dict(part.split("=", 1) for part in link.split("?", 1)[1].split("&"))
+        res = self.client.post("/api/auth/password/reset/", {**query, "password": "Nouveau-Secret-42"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.me_status(self.owner_tokens), 401)
+        self.assertEqual(self.refresh_status(self.owner_tokens), 401)
+
+    def test_refresh_keeps_login_time_and_session_has_a_maximum_age(self):
+        first_auth_time = UntypedToken(self.owner_tokens["refresh"])["auth_time"]
+        self.client.credentials()
+        rotated = self.client.post("/api/auth/refresh/", {"refresh": self.owner_tokens["refresh"]}, format="json").data
+        self.assertEqual(UntypedToken(rotated["refresh"])["auth_time"], first_auth_time)
+        later = time.time() + 31 * 24 * 3600
+        with mock.patch("apps.accounts.tokens.time.time", return_value=later):
+            self.assertEqual(self.refresh_status(rotated), 401)
+            self.assertEqual(self.me_status(rotated), 401)
+
+    def test_token_issued_without_password_fingerprint_is_rejected(self):
+        membership = Membership.objects.get(user__email="owner@example.com")
+        legacy = RefreshToken.for_user(membership.user)
+        legacy["membership_id"] = str(membership.id)
+        legacy["organization_id"] = str(membership.organization_id)
+        access = legacy.access_token
+        access["membership_id"] = str(membership.id)
+        access["organization_id"] = str(membership.organization_id)
+        tokens = {"access": str(access), "refresh": str(legacy)}
+        self.assertEqual(self.me_status(tokens), 401)
+        self.assertEqual(self.refresh_status(tokens), 401)
+
+
+class AuditFollowUpTests(SecurityTestCase):
+    """Points de l'audit de sécurité : accès par dépôt, entrées invalides,
+    dépôts désactivés, facturation et organisation suspendue."""
+
+    def second_warehouse(self, name="Boutique B", active=True):
+        res = self.client.post("/api/warehouses/", {"name": name, "code": name[-1] + "01"}, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        if not active:
+            Warehouse.objects.filter(id=res.data["id"]).update(is_active=False)
+        return res.data["id"]
+
+    def restrict(self, membership, *warehouse_ids):
+        for wid in warehouse_ids:
+            MembershipWarehouse.objects.create(membership=membership, warehouse_id=wid)
+
+    def test_total_stock_only_counts_allowed_warehouses(self):
+        other = self.second_warehouse()
+        res = self.client.post(
+            "/api/transfers/",
+            {"source": self.warehouse_id, "destination": other, "items": [{"product": self.product_id, "quantity": 5}]},
+            format="json",
+        )
+        self.client.post(f"/api/transfers/{res.data['id']}/complete/")
+        membership, staff = self.member(Role.STAFF)
+        self.restrict(membership, other)
+        self.auth(staff)
+        product = self.client.get(f"/api/products/{self.product_id}/").data
+        self.assertEqual(product["total_stock"], 5)
+        self.auth(self.owner_tokens)
+        self.assertEqual(self.client.get(f"/api/products/{self.product_id}/").data["total_stock"], 20)
+
+    def test_transfer_cancel_requires_access_to_source(self):
+        other = self.second_warehouse()
+        transfer = self.client.post(
+            "/api/transfers/",
+            {"source": self.warehouse_id, "destination": other, "items": [{"product": self.product_id, "quantity": 1}]},
+            format="json",
+        ).data
+        membership, manager = self.member(Role.MANAGER)
+        self.restrict(membership, other)
+        self.auth(manager)
+        self.assertEqual(self.client.post(f"/api/transfers/{transfer['id']}/cancel/").status_code, 403)
+
+    def test_malformed_ids_are_a_400_not_a_500(self):
+        for url in (
+            "/api/alerts/stock/?warehouse=pas-un-uuid",
+            "/api/reports/export/stock/?warehouse=pas-un-uuid",
+            "/api/reports/export/movements/?product=pas-un-uuid",
+            "/api/reports/export/inventory/?inventory=pas-un-uuid",
+        ):
+            self.assertEqual(self.client.get(url).status_code, 400, url)
+
+    def test_no_new_operation_on_a_deactivated_warehouse(self):
+        closed = self.second_warehouse("Boutique C", active=False)
+        res = self.client.post(
+            "/api/sales/", {"warehouse": closed, "items": [{"product": self.product_id, "quantity": 1}]}, format="json"
+        )
+        self.assertEqual(res.status_code, 400)
+        res = self.client.post(
+            "/api/transfers/",
+            {"source": self.warehouse_id, "destination": closed, "items": [{"product": self.product_id, "quantity": 1}]},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_payment_history_is_reserved_to_billing_managers(self):
+        SubscriptionPayment.objects.create(
+            organization=self.org, plan="MONTHLY", amount=5000, reference="SUB-TEST-1"
+        )
+        self.assertEqual(len(self.client.get("/api/billing/subscription/").data["recent_payments"]), 1)
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        res = self.client.get("/api/billing/subscription/")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["recent_payments"], [])
+
+    def test_suspended_organization_cannot_change_its_settings(self):
+        Organization.objects.filter(id=self.org.id).update(status=OrganizationStatus.SUSPENDED)
+        res = self.client.patch("/api/organizations/me/", {"name": "Nouveau nom"}, format="json")
+        self.assertEqual(res.status_code, 403)
+
+    def test_refresh_is_throttled(self):
+        cache.clear()
+        self.client.credentials()
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {"auth_refresh": "2/min"}):
+            codes = [
+                self.client.post("/api/auth/refresh/", {"refresh": "x"}, format="json").status_code
+                for _ in range(3)
+            ]
+        self.assertEqual(codes[-1], 429)
+
+
+class RolesAndPermissionsTests(SecurityTestCase):
+    """Administrateurs gérés par le propriétaire seul, prix réservés à
+    prices.update, permissions ajustables membre par membre."""
+
+    def test_administrator_cannot_manage_other_administrators(self):
+        _, admin = self.member(Role.ADMINISTRATOR, "admin1@example.com")
+        other_admin, _ = self.member(Role.ADMINISTRATOR, "admin2@example.com")
+        staff, _ = self.member(Role.STAFF)
+        self.auth(admin)
+        self.assertEqual(
+            self.client.patch(f"/api/users/{other_admin.id}/", {"role": "STAFF"}, format="json").status_code, 403
+        )
+        self.assertEqual(
+            self.client.patch(f"/api/users/{other_admin.id}/", {"is_active": False}, format="json").status_code, 403
+        )
+        self.assertEqual(
+            self.client.patch(f"/api/users/{staff.id}/", {"role": "ADMINISTRATOR"}, format="json").status_code, 403
+        )
+        self.assertEqual(
+            self.client.post("/api/invitations/", {"email": "new@example.com", "role": "ADMINISTRATOR"}, format="json").status_code,
+            400,
+        )
+        self.assertEqual(self.client.patch(f"/api/users/{staff.id}/", {"role": "MANAGER"}, format="json").status_code, 200)
+        self.auth(self.owner_tokens)
+        self.assertEqual(
+            self.client.patch(f"/api/users/{other_admin.id}/", {"role": "MANAGER"}, format="json").status_code, 200
+        )
+
+    def test_manager_cannot_change_prices_unless_granted(self):
+        manager, tokens = self.member(Role.MANAGER)
+        self.auth(tokens)
+        url = f"/api/products/{self.product_id}/"
+        self.assertEqual(self.client.patch(url, {"selling_price": 500}, format="json").status_code, 403)
+        self.assertEqual(self.client.patch(url, {"name": "Nouveau nom"}, format="json").status_code, 200)
+        self.auth(self.owner_tokens)
+        res = self.client.patch(f"/api/users/{manager.id}/", {"granted_permissions": ["prices.update"]}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn("prices.update", res.data["permissions"])
+        self.auth(tokens)
+        self.assertEqual(self.client.patch(url, {"selling_price": 500}, format="json").status_code, 200)
+        self.assertIn("prices.update", self.client.get("/api/auth/membership/").data["permissions"])
+
+    def test_revoked_permission_is_enforced(self):
+        staff, tokens = self.member(Role.STAFF)
+        self.client.patch(f"/api/users/{staff.id}/", {"revoked_permissions": ["sales.create"]}, format="json")
+        self.auth(tokens)
+        res = self.client.post(
+            "/api/sales/", {"warehouse": self.warehouse_id, "items": [{"product": self.product_id, "quantity": 1}]}, format="json"
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_member_management_permissions_cannot_be_granted(self):
+        staff, _ = self.member(Role.STAFF)
+        res = self.client.patch(f"/api/users/{staff.id}/", {"granted_permissions": ["users.update"]}, format="json")
+        self.assertEqual(res.status_code, 400)
+
+    def test_overrides_are_dropped_for_administrators(self):
+        manager, _ = self.member(Role.MANAGER)
+        self.client.patch(f"/api/users/{manager.id}/", {"revoked_permissions": ["sales.create"]}, format="json")
+        res = self.client.patch(f"/api/users/{manager.id}/", {"role": "ADMINISTRATOR"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        manager.refresh_from_db()
+        self.assertEqual(manager.revoked_permissions, [])
+        self.assertTrue(manager.has_perm("sales.create"))
+
+
+class EmailVerificationTests(StockProAPITestCase):
+    """L'inscription n'ouvre pas de session : l'essai démarre à la
+    confirmation de l'email."""
+
+    payload = {
+        "email": "nouveau@example.com",
+        "password": PASSWORD,
+        "first_name": "Awa",
+        "last_name": "K",
+        "organization_name": "Boutique Nouvelle",
+        "warehouse_name": "Boutique",
+        "country": "BJ",
+        "currency": "XOF",
+        "timezone": "Africa/Porto-Novo",
+    }
+
+    def setUp(self):
+        cache.clear()
+
+    def login(self, password=PASSWORD):
+        return self.client.post(
+            "/api/auth/login/", {"email": self.payload["email"], "password": password}, format="json"
+        )
+
+    def test_registration_waits_for_email_confirmation(self):
+        res = self.client.post("/api/auth/register/", self.payload, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertNotIn("access", res.data)
+        self.assertTrue(res.data["verification_required"])
+        org = Organization.objects.get(name="Boutique Nouvelle")
+        self.assertFalse(org.has_operational_access())
+        self.assertEqual(self.login().data["error"]["code"], "EMAIL_NOT_VERIFIED")
+        # Mauvais mot de passe : rien ne révèle que le compte attend une confirmation.
+        self.assertNotEqual(self.login("mauvais").data.get("error", {}).get("code"), "EMAIL_NOT_VERIFIED")
+
+    def test_confirmation_starts_trial_and_opens_session_once(self):
+        self.client.post("/api/auth/register/", self.payload, format="json")
+        query = self.verification_query(self.payload["email"])
+        res = self.client.post("/api/auth/email/verify/", query, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn("access", res.data)
+        org = Organization.objects.get(name="Boutique Nouvelle")
+        self.assertEqual(org.status, OrganizationStatus.TRIAL)
+        self.assertTrue(org.has_operational_access())
+        self.assertEqual(self.client.post("/api/auth/email/verify/", query, format="json").status_code, 400)
+        self.assertEqual(self.login().status_code, 200)
+
+    def test_resend_only_sends_to_unconfirmed_accounts(self):
+        self.client.post("/api/auth/register/", self.payload, format="json")
+        mail.outbox.clear()
+        for email in (self.payload["email"], "inconnu@example.com"):
+            res = self.client.post("/api/auth/email/resend/", {"email": email}, format="json")
+            self.assertEqual(res.status_code, 200)
+        self.assertEqual([m.to for m in mail.outbox], [[self.payload["email"]]])
+
+
+class AdminAndDocsProtectionTests(SecurityTestCase):
+    """Doc de l'API réservée au staff ; admin limité en tentatives et par IP."""
+
+    def staff_login(self):
+        User.objects.create_superuser(email="staff@example.com", password=PASSWORD)
+        self.client.credentials()
+        self.client.force_login(User.objects.get(email="staff@example.com"))
+
+    def test_api_docs_are_reserved_to_platform_staff(self):
+        self.client.credentials()
+        self.assertIn(self.client.get("/api/schema/").status_code, (401, 403))
+        # Un propriétaire d'organisation (JWT) n'y a pas accès non plus.
+        self.auth(self.owner_tokens)
+        self.assertIn(self.client.get("/api/schema/").status_code, (401, 403))
+        self.staff_login()
+        self.assertEqual(self.client.get("/api/schema/").status_code, 200)
+        self.assertEqual(self.client.get("/api/docs/").status_code, 200)
+
+    @override_settings(ADMIN_LOGIN_ATTEMPTS=3)
+    def test_admin_login_is_rate_limited_per_ip(self):
+        cache.clear()
+        self.client.credentials()
+        codes = [
+            self.client.post("/admin/login/", {"username": "x@example.com", "password": "bad"}).status_code
+            for _ in range(4)
+        ]
+        self.assertEqual(codes[:3], [200, 200, 200])
+        self.assertEqual(codes[3], 429)
+
+    def test_admin_and_docs_hidden_outside_allowed_networks(self):
+        import ipaddress
+
+        with override_settings(ADMIN_ALLOWED_NETWORKS=[ipaddress.ip_network("10.0.0.0/8")]):
+            self.assertEqual(self.client.get("/admin/", REMOTE_ADDR="203.0.113.7").status_code, 404)
+            self.assertEqual(self.client.get("/api/docs/", REMOTE_ADDR="203.0.113.7").status_code, 404)
+            self.assertEqual(self.client.get("/admin/", REMOTE_ADDR="10.1.2.3").status_code, 302)
+
+
+class BlindCountStockTests(SecurityTestCase):
+    """Pendant un inventaire ouvert, ceux qui comptent ne voient pas le stock
+    du dépôt (sinon il suffirait de le recopier)."""
+
+    def setUp(self):
+        super().setUp()
+        res = self.client.post("/api/inventories/", {"warehouse": self.warehouse_id}, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.inventory_id = res.data["id"]
+
+    def test_staff_does_not_see_stock_of_warehouse_being_counted(self):
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        position = self.client.get("/api/stock/").data["results"][0]
+        self.assertIsNone(position["quantity"])
+        self.assertEqual(position["status"], "COUNTING")
+        self.assertIsNone(position["product"]["total_stock"])
+        self.assertIsNone(self.client.get(f"/api/products/{self.product_id}/").data["total_stock"])
+        self.assertEqual(self.client.get("/api/stock/?status=NORMAL").data["count"], 0)
+        self.assertEqual(self.client.get("/api/alerts/stock/").data["summary"]["total"], 0)
+
+    def test_validators_still_see_stock(self):
+        _, manager = self.member(Role.MANAGER)
+        self.auth(manager)
+        self.assertEqual(self.client.get("/api/stock/").data["results"][0]["quantity"], 20)
+
+    def test_stock_is_visible_again_once_inventory_is_closed(self):
+        self.client.post(f"/api/inventories/{self.inventory_id}/cancel/")
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        self.assertEqual(self.client.get("/api/stock/").data["results"][0]["quantity"], 20)
+
+
+class DocumentDateTests(SecurityTestCase):
+    """Dates de vente et d'achat : pas de futur, passé limité au délai de
+    saisie rétroactive de l'organisation (30 jours par défaut)."""
+
+    def sale_on(self, day):
+        return self.client.post(
+            "/api/sales/",
+            {
+                "warehouse": self.warehouse_id,
+                "sale_date": day.isoformat(),
+                "items": [{"product": self.product_id, "quantity": 1}],
+            },
+            format="json",
+        )
+
+    def test_future_and_too_old_dates_are_rejected(self):
+        today = timezone.localdate()
+        self.assertEqual(self.sale_on(today + timedelta(days=1)).status_code, 400)
+        self.assertEqual(self.sale_on(today - timedelta(days=31)).status_code, 400)
+        self.assertEqual(self.sale_on(today - timedelta(days=29)).status_code, 201)
+        supplier = self.client.post("/api/suppliers/", {"name": "Grossiste"}, format="json").data
+        res = self.client.post(
+            "/api/purchases/",
+            {
+                "supplier": supplier["id"],
+                "warehouse": self.warehouse_id,
+                "purchase_date": (today + timedelta(days=3)).isoformat(),
+                "items": [{"product": self.product_id, "quantity": 1, "unit_price": 100}],
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_backdating_window_is_an_organization_setting(self):
+        res = self.client.patch("/api/organizations/me/", {"backdating_days": 90}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.sale_on(timezone.localdate() - timedelta(days=60)).status_code, 201)
+        self.assertEqual(
+            self.client.patch("/api/organizations/me/", {"backdating_days": 400}, format="json").status_code, 400
+        )
+
+
 class BillingHardeningTests(SecurityTestCase):
     @override_settings(DEBUG=True, ALPHAPAY_WEBHOOK_SECRET="")
     def test_unsigned_webhook_rejected_even_in_debug(self):
@@ -337,13 +733,29 @@ class CostVisibilityTests(SecurityTestCase):
         movement = self.client.get("/api/movements/").data["results"][0]
         self.assertNotIn("unit_cost", movement)
 
+    def test_dashboard_hides_purchase_figures_from_staff(self):
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        data = self.client.get("/api/dashboard/").data
+        self.assertIsNone(data["purchases_month_total"])
+        self.assertIsNone(data["pending_purchases"])
+
+    def test_dashboard_shows_purchase_figures_to_manager(self):
+        _, manager = self.member(Role.MANAGER)
+        self.auth(manager)
+        data = self.client.get("/api/dashboard/").data
+        self.assertEqual(data["purchases_month_total"], 0)
+        self.assertEqual(data["pending_purchases"], 0)
+
 
 @skipUnless(connection.vendor == "postgresql", "Verrous FOR UPDATE : nécessite TEST_DATABASE_URL (PostgreSQL).")
 class ConcurrentCompletionTests(TransactionTestCase):
     """§67.1 : deux validations simultanées sur la dernière unité, une seule réussit."""
 
     def test_only_one_sale_gets_the_last_unit(self):
-        user = User.objects.create_user(email="c@example.com", password=PASSWORD, first_name="C", last_name="C")
+        user = User.objects.create_user(
+            email="c@example.com", password=PASSWORD, first_name="C", last_name="C", email_verified_at=timezone.now()
+        )
         org = Organization.objects.create(name="Concurrence", status="ACTIVE")
         membership = Membership.objects.create(user=user, organization=org, role=Role.OWNER)
         warehouse = Warehouse.objects.create(organization=org, name="Dépôt", code="MAIN")

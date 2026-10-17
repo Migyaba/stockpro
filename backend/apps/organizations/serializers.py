@@ -24,6 +24,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "tax_rate_bps",
             "prices_include_tax",
             "max_discount_percent_manager",
+            "backdating_days",
             "status",
             "trial_ends_at",
             "created_at",
@@ -54,13 +55,13 @@ class DashboardSerializer(serializers.Serializer):
     sales_today_count = serializers.IntegerField()
     low_stock_count = serializers.IntegerField()
     out_of_stock_count = serializers.IntegerField()
-    pending_purchases = serializers.IntegerField(required=False)
+    pending_purchases = serializers.IntegerField(allow_null=True, required=False)
     warehouses_count = serializers.IntegerField()
     sales_week_total = serializers.IntegerField()
     sales_month_total = serializers.IntegerField()
     sales_month_count = serializers.IntegerField()
     sales_month_evolution_pct = serializers.FloatField(allow_null=True)
-    purchases_month_total = serializers.IntegerField()
+    purchases_month_total = serializers.IntegerField(allow_null=True)
     margin_month = serializers.IntegerField(allow_null=True, required=False)
     margin_month_pct = serializers.FloatField(allow_null=True, required=False)
     recent_sales = DashboardSaleSerializer(many=True)

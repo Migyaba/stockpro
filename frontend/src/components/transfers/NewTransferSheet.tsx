@@ -59,7 +59,7 @@ function NewTransferForm({ onDone }: { onDone: () => void }) {
 
   // Seuls les produits présents dans le dépôt source peuvent partir.
   const { data: sourceStock = [], isLoading: stockLoading } = useWarehouseStock(source);
-  const available = sourceStock.filter((p) => p.quantity > 0 && p.product.is_active);
+  const available = sourceStock.filter((p) => (p.quantity ?? 0) > 0 && p.product.is_active);
   const availableQty = new Map(sourceStock.map((p) => [p.product.id, p.quantity]));
 
   const create = useCreateTransfer();

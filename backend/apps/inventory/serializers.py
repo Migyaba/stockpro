@@ -3,7 +3,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
-from apps.core.serializers import TenantScopedSerializerMixin
+from apps.core.serializers import TenantScopedSerializerMixin, ensure_active_warehouse
 from apps.inventory.models import (
     OPEN_INVENTORY_STATUSES,
     InventoryCount,
@@ -58,9 +58,25 @@ class StockPositionSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    @extend_schema_field(serializers.ChoiceField(choices=["NORMAL", "LOW", "OUT_OF_STOCK"]))
+    @extend_schema_field(serializers.ChoiceField(choices=["NORMAL", "LOW", "OUT_OF_STOCK", "COUNTING"]))
     def get_status(self, obj):
+        if self._hidden(obj):
+            return "COUNTING"
         return stock_level(obj.quantity, obj.product.minimum_stock)
+
+    def _hidden(self, obj):
+        return obj.warehouse_id in self.context.get("hidden_warehouses", ())
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if self._hidden(obj):
+            # Inventaire en cours dans ce dépôt : quantité non communiquée à
+            # ceux qui comptent (comptage à l'aveugle).
+            data["quantity"] = None
+        if self.context.get("hidden_warehouses") and isinstance(data.get("product"), dict):
+            # Le total tous dépôts permettrait de retrouver la quantité masquée.
+            data["product"]["total_stock"] = None
+        return data
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
@@ -142,6 +158,8 @@ class TransferSerializer(TenantScopedSerializerMixin, serializers.ModelSerialize
         for warehouse in (source, destination):
             if warehouse and not membership.can_access_warehouse(warehouse):
                 raise WarehouseForbidden()
+        ensure_active_warehouse(source, "source")
+        ensure_active_warehouse(destination, "destination")
         return attrs
 
     @transaction.atomic
@@ -211,6 +229,7 @@ class InventoryCountSerializer(TenantScopedSerializerMixin, serializers.ModelSer
         request = self.context["request"]
         if not request.membership.can_access_warehouse(warehouse):
             raise WarehouseForbidden()
+        ensure_active_warehouse(warehouse)
         open_inventory = InventoryCount.objects.filter(
             warehouse=warehouse, status__in=OPEN_INVENTORY_STATUSES
         ).first()

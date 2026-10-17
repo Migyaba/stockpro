@@ -10,7 +10,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -32,11 +32,13 @@ from apps.accounts.serializers import (
     RefreshSerializer,
     RegisterSerializer,
     invitation_url,
+    start_pending_trials,
 )
-from apps.accounts.tokens import issue_tokens
+from apps.accounts.emails import email_verification_token, send_password_reset_email, send_verification_email
+from apps.accounts.tokens import issue_tokens, password_fingerprint, session_expired
 from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
-from apps.core.permissions import ROLE_PERMISSIONS, require_permission
+from apps.core.permissions import CUSTOMIZABLE_ROLES, GRANTABLE_PERMISSIONS, ROLE_PERMISSIONS, require_permission
 from apps.core.viewsets import AuditedViewSetMixin, TenantViewSet
 
 logger = logging.getLogger(__name__)
@@ -52,23 +54,85 @@ class RegisterView(APIView):
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user, membership, tokens = serializer.save()
+        with transaction.atomic():
+            user, _membership = serializer.save()
+        # Pas de session tant que l'email n'est pas confirmé.
+        send_verification_email(user)
         return Response(
-            {
-                "user": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                },
-                "organization": {
-                    "id": str(membership.organization_id),
-                    "name": membership.organization.name,
-                },
-                **tokens,
-            },
+            {"email": user.email, "verification_required": True},
             status=status.HTTP_201_CREATED,
         )
+
+
+def _session_payload(request, user, membership):
+    """Réponse d'ouverture de session (login, confirmation d'email)."""
+    user.last_login = timezone.now()
+    user.save(update_fields=["last_login"])
+    tokens = issue_tokens(user, membership)
+    request.organization = membership.organization
+    request.user = user
+    write_audit(request, action=AuditAction.LOGIN, entity=user)
+    return {
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "role": membership.role,
+        },
+        "organization": {
+            "id": str(membership.organization_id),
+            "name": membership.organization.name,
+            "currency": membership.organization.currency,
+            "currency_exponent": membership.organization.currency_exponent,
+            "timezone": membership.organization.timezone,
+        },
+        **tokens,
+    }
+
+
+class VerifyEmailView(APIView):
+    """Confirme l'email à partir du lien reçu, démarre l'essai et ouvre la session."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password"
+
+    def post(self, request):
+        invalid = Response({"error": {"code": "invalid", "message": "Lien invalide ou expiré."}}, status=400)
+        try:
+            user = User.objects.get(pk=urlsafe_base64_decode(request.data.get("uid") or "").decode())
+        except Exception:
+            return invalid
+        if not user.is_active or not email_verification_token.check_token(user, request.data.get("token") or ""):
+            return invalid
+        with transaction.atomic():
+            user.email_verified_at = timezone.now()
+            user.save(update_fields=["email_verified_at"])
+            start_pending_trials(user)
+        membership = (
+            user.memberships.select_related("organization").filter(is_active=True).order_by("created_at").first()
+        )
+        if membership is None:
+            return Response({"ok": True})
+        return Response(_session_payload(request, user, membership))
+
+
+class ResendVerificationView(APIView):
+    """Renvoie le lien de confirmation. Réponse identique que le compte existe ou non."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password"
+
+    def post(self, request):
+        email = (request.data.get("email") or "").strip().lower()
+        user = User.objects.filter(email__iexact=email, is_active=True, email_verified_at__isnull=True).first()
+        if user is not None:
+            send_verification_email(user)
+        return Response({"ok": True})
 
 
 class LoginView(APIView):
@@ -83,36 +147,14 @@ class LoginView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.validated_data["user"]
         membership = serializer.validated_data["membership"]
-        user.last_login = timezone.now()
-        user.save(update_fields=["last_login"])
-        tokens = issue_tokens(user, membership)
-        request.organization = membership.organization
-        request.user = user
-        write_audit(request, action=AuditAction.LOGIN, entity=user)
-        return Response(
-            {
-                "user": {
-                    "id": str(user.id),
-                    "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
-                    "role": membership.role,
-                },
-                "organization": {
-                    "id": str(membership.organization_id),
-                    "name": membership.organization.name,
-                    "currency": membership.organization.currency,
-                    "currency_exponent": membership.organization.currency_exponent,
-                    "timezone": membership.organization.timezone,
-                },
-                **tokens,
-            }
-        )
+        return Response(_session_payload(request, user, membership))
 
 
 class RefreshView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_refresh"
     serializer_class = RefreshSerializer
 
     def post(self, request):
@@ -135,8 +177,17 @@ class RefreshView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         user = membership.user
+        # Mot de passe changé depuis l'émission, ou session trop ancienne :
+        # la rotation ne doit pas prolonger indéfiniment un jeton volé.
+        auth_time = old.get("auth_time")
+        if old.get("pwd") != password_fingerprint(user) or session_expired(auth_time):
+            old.blacklist()
+            return Response(
+                {"error": {"code": "authentication_failed", "message": "Session expirée : reconnectez-vous."}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         old.blacklist()
-        tokens = issue_tokens(user, membership)
+        tokens = issue_tokens(user, membership, auth_time=auth_time)
         return Response(tokens)
 
 
@@ -189,7 +240,7 @@ class MeView(APIView):
                 "membership": {
                     "id": str(m.id),
                     "role": m.role,
-                    "permissions": sorted(ROLE_PERMISSIONS.get(m.role, [])),
+                    "permissions": sorted(m.permissions()),
                 },
                 "organization": _organization_payload(org),
             }
@@ -204,14 +255,31 @@ class MyMembershipView(APIView):
                 "id": str(m.id),
                 "role": m.role,
                 "is_active": m.is_active,
-                "permissions": sorted(ROLE_PERMISSIONS.get(m.role, [])),
+                "permissions": sorted(m.permissions()),
                 "warehouse_ids": [str(i) for i in m.warehouse_ids()],
                 "organization": _organization_payload(request.organization),
             }
         )
 
 
+class PermissionCatalogView(APIView):
+    """Permissions de chaque rôle et celles ajustables membre par membre."""
+
+    permission_classes = [require_permission("users.view")]
+
+    def get(self, request):
+        return Response(
+            {
+                "roles": {role: sorted(perms) for role, perms in ROLE_PERMISSIONS.items()},
+                "grantable": sorted(GRANTABLE_PERMISSIONS),
+                "customizable_roles": sorted(CUSTOMIZABLE_ROLES),
+            }
+        )
+
+
 class ChangePasswordView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "auth_password_change"
     serializer_class = ChangePasswordSerializer
     def post(self, request):
         serializer = ChangePasswordSerializer(data=request.data, context={"request": request})
@@ -223,7 +291,9 @@ class ChangePasswordView(APIView):
             )
         request.user.set_password(serializer.validated_data["new_password"])
         request.user.save()
-        return Response({"ok": True})
+        # Les jetons existants (autres appareils compris) ne sont plus valides :
+        # on renvoie un nouveau couple pour garder la session en cours.
+        return Response({"ok": True, **issue_tokens(request.user, request.membership)})
 
 
 class PasswordForgotView(APIView):
@@ -244,21 +314,7 @@ class PasswordForgotView(APIView):
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         token = default_token_generator.make_token(user)
         link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?uid={uid}&token={token}"
-        try:
-            send_mail(
-                subject="STOCKPRO — Réinitialisation de votre mot de passe",
-                message=(
-                    f"Bonjour {user.first_name},\n\n"
-                    "Pour choisir un nouveau mot de passe, ouvrez ce lien :\n"
-                    f"{link}\n\n"
-                    "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."
-                ),
-                from_email=None,
-                recipient_list=[user.email],
-            )
-        except Exception:
-            # Réponse identique dans tous les cas : ne pas révéler l'existence du compte.
-            logger.exception("Échec d'envoi de l'email de réinitialisation.")
+        send_password_reset_email(user, link)
         return Response({"ok": True})
 
 
@@ -308,12 +364,23 @@ class MembershipViewSet(AuditedViewSetMixin, TenantViewSet):
             raise PermissionDenied()
         instance = self.get_object()
         new_role = request.data.get("role", instance.role)
-        deactivating = str(request.data.get("is_active", instance.is_active)).lower() in {"false", "0"}
+        # Même lecture que le sérialiseur (« off », « no », « f »… valent False).
+        try:
+            deactivating = not serializers.BooleanField().to_internal_value(
+                request.data.get("is_active", instance.is_active)
+            )
+        except serializers.ValidationError:
+            deactivating = False
         if instance.pk == request.membership.pk:
             raise InvalidStateTransition("Vous ne pouvez pas modifier votre propre rôle ou accès.")
         touches_owner = instance.role == Role.OWNER or new_role == Role.OWNER
         if touches_owner and request.membership.role != Role.OWNER:
             raise PermissionDenied("Seul un owner peut attribuer ou modifier le rôle owner.")
+        # Un administrateur ne gère que les gestionnaires et caissiers : modifier
+        # un administrateur, ou en nommer un, est réservé au propriétaire.
+        touches_admin = instance.role == Role.ADMINISTRATOR or new_role == Role.ADMINISTRATOR
+        if touches_admin and request.membership.role != Role.OWNER:
+            raise PermissionDenied("Seul le propriétaire peut modifier ou nommer un administrateur.")
         loses_owner = instance.role == Role.OWNER and (new_role != Role.OWNER or deactivating)
         if loses_owner:
             with transaction.atomic():

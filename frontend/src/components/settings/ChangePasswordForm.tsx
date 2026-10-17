@@ -5,6 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import { KeyRound, Loader2 } from "lucide-react";
 import apiClient, { getApiErrorMessage } from "@/lib/api/client";
 import { toast } from "@/lib/stores/toastStore";
+import { useAuthStore } from "@/lib/stores/authStore";
 
 const INPUT_CLASS =
   "w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800";
@@ -14,13 +15,19 @@ export function ChangePasswordForm() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const setTokens = useAuthStore((s) => s.setTokens);
 
+  // Le serveur invalide tous les jetons existants et renvoie un nouveau couple
+  // pour cette session : sans lui, la requête suivante serait refusée.
   const change = useMutation({
     mutationFn: () =>
-      apiClient.post("/auth/password/change/", {
-        old_password: oldPassword,
-        new_password: newPassword,
-      }),
+      apiClient
+        .post<{ access: string; refresh: string }>("/auth/password/change/", {
+          old_password: oldPassword,
+          new_password: newPassword,
+        })
+        .then((res) => res.data),
+    onSuccess: (data) => setTokens(data.access, data.refresh),
   });
 
   async function handleSubmit(e: React.FormEvent) {

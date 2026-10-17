@@ -32,6 +32,7 @@ export default function DashboardPage() {
   const queryClient = useQueryClient();
   const { canViewCost, permissions } = useAuthStore();
   const canCreateProduct = permissions.includes("products.create");
+  const canViewPurchases = permissions.includes("purchases.view");
 
   const { data: kpis, isLoading: kpisLoading } = useDashboardKpis();
   const { data: stockData, isLoading: stockLoading } = useStockPositions({
@@ -134,19 +135,19 @@ export default function DashboardPage() {
           loading={kpisLoading}
           alert={(kpis?.low_stock_count ?? 0) + (kpis?.out_of_stock_count ?? 0) > 0}
         />
-        <KpiCard
-          label="Commandes en attente"
-          value={kpis ? String(kpis.pending_purchases) : "—"}
-          subValue={
-            kpis && kpis.pending_purchases > 0
-              ? "à confirmer / réceptionner"
-              : "Aucune commande en attente"
-          }
-          icon={Truck}
-          iconColor="text-amber-600 dark:text-amber-400"
-          iconBg="bg-amber-50 dark:bg-amber-950"
-          loading={kpisLoading}
-        />
+        {canViewPurchases && (
+          <KpiCard
+            label="Commandes en attente"
+            value={kpis?.pending_purchases != null ? String(kpis.pending_purchases) : "—"}
+            subValue={
+              kpis?.pending_purchases ? "à confirmer / réceptionner" : "Aucune commande en attente"
+            }
+            icon={Truck}
+            iconColor="text-amber-600 dark:text-amber-400"
+            iconBg="bg-amber-50 dark:bg-amber-950"
+            loading={kpisLoading}
+          />
+        )}
       </div>
 
       {/* Activité : semaine, mois (évolution vs mois précédent), marge, achats (§39) */}
@@ -166,7 +167,9 @@ export default function DashboardPage() {
               hint={kpis.margin_month_pct !== null ? `${kpis.margin_month_pct.toLocaleString("fr-FR")} % du CA HT` : "—"}
             />
           )}
-          <StatTile label="Achats · ce mois" value={formatFCFA(kpis.purchases_month_total)} hint="commandes confirmées" />
+          {kpis.purchases_month_total !== null && (
+            <StatTile label="Achats · ce mois" value={formatFCFA(kpis.purchases_month_total)} hint="commandes confirmées" />
+          )}
         </div>
       )}
 

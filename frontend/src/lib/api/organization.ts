@@ -5,6 +5,7 @@ import type {
   InviteMemberPayload,
   Invitation,
   UpdateMemberPayload,
+  PermissionCatalog,
   PaginatedResponse,
 } from "@/lib/types/api";
 
@@ -39,7 +40,15 @@ function normalizeMember(m: any): OrganizationMember {
     is_active: m.is_active ?? true,
     created_at: m.created_at || new Date().toISOString(),
     warehouse_ids: m.warehouse_ids || [],
+    granted_permissions: m.granted_permissions || [],
+    revoked_permissions: m.revoked_permissions || [],
+    permissions: m.permissions || [],
   };
+}
+
+export async function fetchPermissionCatalog(): Promise<PermissionCatalog> {
+  const { data } = await apiClient.get<PermissionCatalog>("/auth/permissions/");
+  return data;
 }
 
 export async function fetchOrganizationMembers(): Promise<OrganizationMember[]> {

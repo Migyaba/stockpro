@@ -82,7 +82,10 @@ export default function ParametresPage() {
   const warehouseNames = new Map(warehouses.map((w) => [w.id, w.name]));
   // Ni soi-même (règle backend), ni un propriétaire si l'on n'est pas propriétaire.
   const canManage = (mem: OrganizationMember) =>
-    canUpdateMembers && mem.id !== membership?.id && (mem.role !== "OWNER" || currentRole === "OWNER");
+    canUpdateMembers &&
+    mem.id !== membership?.id &&
+    // Propriétaires et administrateurs ne sont gérés que par le propriétaire.
+    ((mem.role !== "OWNER" && mem.role !== "ADMINISTRATOR") || currentRole === "OWNER");
 
   // Local state for org form
   const [orgForm, setOrgForm] = useState({
@@ -92,6 +95,7 @@ export default function ParametresPage() {
     timezone: "Africa/Porto-Novo",
     tax_enabled: true,
     tax_rate_bps: 1800,
+    backdating_days: 30,
     address: "",
     phone: "",
   });
@@ -108,6 +112,7 @@ export default function ParametresPage() {
         timezone: org.timezone || "Africa/Porto-Novo",
         tax_enabled: org.tax_enabled ?? true,
         tax_rate_bps: org.tax_rate_bps ?? 1800,
+        backdating_days: org.backdating_days ?? 30,
       address: org.address || "",
       phone: org.phone || "",
     });
@@ -388,6 +393,27 @@ export default function ParametresPage() {
                 />
               </div>
             </div>
+
+            <label className="flex items-center justify-between gap-4 p-3.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+              <span>
+                <span className="block text-xs font-semibold text-zinc-900 dark:text-zinc-50">
+                  Saisie rétroactive (jours)
+                </span>
+                <span className="block text-[11px] text-zinc-400">
+                  Ventes et achats : jamais dans le futur, et au plus ce nombre de jours dans le passé (0 à 365).
+                </span>
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={365}
+                value={orgForm.backdating_days}
+                onChange={(e) =>
+                  setOrgForm((prev) => ({ ...prev, backdating_days: Math.max(0, Number(e.target.value) || 0) }))
+                }
+                className="w-20 px-2 py-1.5 text-sm text-right rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800/60 dark:text-zinc-100"
+              />
+            </label>
 
             <div className="pt-4 flex justify-end">
               <button

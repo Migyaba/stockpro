@@ -2,6 +2,7 @@ from django.db.models import F
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.core.params import uuid_param
 from apps.core.permissions import require_permission
 from apps.core.viewsets import restrict_to_allowed_warehouses
 from apps.inventory.models import InventoryCount, StockMovement, StockPosition, Transfer
@@ -28,7 +29,7 @@ PURCHASE_STATUS_LABELS = {
 
 
 def _warehouse(request):
-    return request.query_params.get("warehouse") or None
+    return uuid_param(request, "warehouse")
 
 
 def _date(value):
@@ -145,8 +146,9 @@ class ExportView(APIView):
         ).select_related("product", "warehouse", "created_by").order_by("created_at")
         if _warehouse(request):
             movements = movements.filter(warehouse_id=_warehouse(request))
-        if request.query_params.get("product"):
-            movements = movements.filter(product_id=request.query_params["product"])
+        product_id = uuid_param(request, "product")
+        if product_id:
+            movements = movements.filter(product_id=product_id)
         movements = list(restrict_to_allowed_warehouses(movements, request.membership))
         references = _document_references(request.organization, movements)
         rows = (
@@ -169,14 +171,15 @@ class ExportView(APIView):
         )
 
     def export_inventory(self, request):
+        inventory_id = uuid_param(request, "inventory")
         inventory = (
             restrict_to_allowed_warehouses(
                 InventoryCount.objects.filter(organization=request.organization), request.membership
             )
             .select_related("warehouse")
-            .filter(pk=request.query_params.get("inventory"))
+            .filter(pk=inventory_id)
             .first()
-            if request.query_params.get("inventory")
+            if inventory_id
             else None
         )
         if inventory is None:

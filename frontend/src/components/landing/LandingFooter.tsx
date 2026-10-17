@@ -2,8 +2,6 @@ import Link from "next/link";
 import { BrandMark } from "./BrandMark";
 import { WHATSAPP_URL, container, textLink } from "./styles";
 
-const API_DOCS_URL = "https://apistockpro.miguelmissetcho.com/api/docs/";
-
 const columnClass = "md:border-l md:border-white/[0.07] md:pl-10";
 
 export function LandingFooter() {
@@ -43,11 +41,6 @@ export function LandingFooter() {
               <li>
                 <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className={textLink}>
                   WhatsApp <span className="whitespace-nowrap">+229 43 50 78 05</span>
-                </a>
-              </li>
-              <li>
-                <a href={API_DOCS_URL} target="_blank" rel="noopener noreferrer" className={textLink}>
-                  Documentation API
                 </a>
               </li>
             </ul>

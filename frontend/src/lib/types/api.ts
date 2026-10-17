@@ -62,6 +62,8 @@ export interface Organization {
   tax_rate_bps: number;
   prices_include_tax: boolean;
   max_discount_percent_manager: number;
+  /** Jours dans le passé autorisés pour dater une vente ou un achat. */
+  backdating_days: number;
   address?: string;
   phone?: string;
   email?: string;
@@ -116,7 +118,8 @@ export interface Product {
   maximum_stock?: number;
   is_active: boolean;
   /** Stock total tous dépôts confondus (calculé par l'API). */
-  total_stock?: number;
+  /** null : inventaire en cours, stock masqué à ceux qui comptent. */
+  total_stock?: number | null;
   image?: string | null;
   created_at: string;
   updated_at?: string;
@@ -127,7 +130,9 @@ export interface StockPosition {
   id: string;
   product: Product;
   warehouse: Warehouse;
-  quantity: number;
+  /** null : inventaire en cours dans ce dépôt, stock masqué à ceux qui comptent. */
+  quantity: number | null;
+  status?: "NORMAL" | "LOW" | "OUT_OF_STOCK" | "COUNTING";
 }
 
 export type MovementType =
@@ -196,6 +201,17 @@ export interface OrganizationMember {
   is_active: boolean;
   created_at: string;
   warehouse_ids?: string[];
+  /** Ajustements individuels (gestionnaire et caissier). */
+  granted_permissions?: string[];
+  revoked_permissions?: string[];
+  /** Permissions effectives : rôle + ajustements. */
+  permissions?: string[];
+}
+
+export interface PermissionCatalog {
+  roles: Record<Role, string[]>;
+  grantable: string[];
+  customizable_roles: Role[];
 }
 
 export interface InviteMemberPayload {
@@ -222,6 +238,8 @@ export interface UpdateMemberPayload {
   is_active?: boolean;
   /** Liste vide = accès à tous les dépôts. */
   warehouse_ids?: string[];
+  granted_permissions?: string[];
+  revoked_permissions?: string[];
 }
 
 export interface SaleItem {
@@ -384,26 +402,30 @@ export interface DashboardKpis {
   /** Sous le seuil minimum mais pas en rupture. */
   low_stock_count: number;
   out_of_stock_count: number;
-  pending_purchases: number;
+  /** null pour les rôles sans accès aux achats. */
+  pending_purchases: number | null;
   warehouses_count: number;
   sales_week_total: number;
   sales_month_total: number;
   sales_month_count: number;
   sales_month_evolution_pct: number | null;
-  purchases_month_total: number;
+  /** null pour les rôles sans accès aux achats ou aux coûts. */
+  purchases_month_total: number | null;
   /** null pour les rôles sans accès aux coûts. */
   margin_month: number | null;
   margin_month_pct: number | null;
 }
 
 // ─── Stock Level Badge ─────────────────────────────────────────────────────
-export type StockLevel = "normal" | "low" | "out_of_stock";
+export type StockLevel = "normal" | "low" | "out_of_stock" | "counting";
 
 /**
  * Même règle que le backend (apps/inventory/stock_levels.py), les alertes et le dashboard :
  * rupture = 0 ; faible = 0 < quantité ≤ seuil (si le produit a un seuil) ; sinon normal.
  */
-export function getStockLevel(quantity: number, minimumStock: number): StockLevel {
+// quantity null : inventaire en cours, stock masqué (comptage à l'aveugle).
+export function getStockLevel(quantity: number | null, minimumStock: number): StockLevel {
+  if (quantity === null) return "counting";
   if (quantity === 0) return "out_of_stock";
   if (minimumStock > 0 && quantity <= minimumStock) return "low";
   return "normal";

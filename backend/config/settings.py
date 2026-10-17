@@ -1,5 +1,6 @@
 from datetime import timedelta
 from pathlib import Path
+import ipaddress
 import sys
 import os
 
@@ -13,7 +14,14 @@ load_dotenv(BASE_DIR / ".env")
 
 DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
-if not DEBUG and "test" not in sys.argv and SECRET_KEY.startswith(("dev-only", "stockpro-dev", "generate-a")):
+# Textes d'exemple des fichiers .env*.example et valeurs de dev : refusés hors
+# DEBUG, car SECRET_KEY signe aussi les jetons JWT.
+PLACEHOLDER_SECRET_PREFIXES = ("dev-only", "stockpro-dev", "generate", "generer", "change", "votre")
+if (
+    not DEBUG
+    and "test" not in sys.argv
+    and (not SECRET_KEY.strip() or SECRET_KEY.lower().startswith(PLACEHOLDER_SECRET_PREFIXES))
+):
     raise ImproperlyConfigured("DJANGO_SECRET_KEY doit être défini avec une valeur secrète en production.")
 ALLOWED_HOSTS = [
     h.strip()
@@ -58,7 +66,21 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "apps.core.middleware.ClearTenantMiddleware",
+    "apps.core.middleware.AdminGuardMiddleware",
 ]
+
+# ─── Admin Django et documentation de l'API ──────────────────────────────────
+# URL de l'admin : à changer en production (ex. « gestion-7f3k/ »).
+ADMIN_URL = os.getenv("DJANGO_ADMIN_URL", "admin/").strip("/") + "/"
+# Réseaux autorisés pour l'admin et la doc (vide = tous) : « 1.2.3.4,10.0.0.0/8 ».
+ADMIN_ALLOWED_NETWORKS = [
+    ipaddress.ip_network(value.strip(), strict=False)
+    for value in os.getenv("DJANGO_ADMIN_ALLOWED_IPS", "").split(",")
+    if value.strip()
+]
+ADMIN_LOGIN_ATTEMPTS = int(os.getenv("DJANGO_ADMIN_LOGIN_ATTEMPTS", "5"))
+ADMIN_LOGIN_WINDOW = int(os.getenv("DJANGO_ADMIN_LOGIN_WINDOW", "900"))
+API_DOCS_PATHS = ("/api/docs/", "/api/schema/", "/api/redoc/")
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
@@ -225,6 +247,9 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "apps.accounts.authentication.TenantJWTAuthentication",
     ],
+    # API navigable de DRF seulement en développement.
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"]
+    + (["rest_framework.renderers.BrowsableAPIRenderer"] if DEBUG else []),
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
@@ -245,8 +270,15 @@ REST_FRAMEWORK = {
         "auth_login": os.getenv("THROTTLE_AUTH_LOGIN", "10/min"),
         "auth_register": os.getenv("THROTTLE_AUTH_REGISTER", "20/hour"),
         "auth_password": os.getenv("THROTTLE_AUTH_PASSWORD", "10/hour"),
+        "auth_refresh": os.getenv("THROTTLE_AUTH_REFRESH", "60/min"),
+        "auth_password_change": os.getenv("THROTTLE_AUTH_PASSWORD_CHANGE", "10/hour"),
     },
 }
+# Emails d'authentification (confirmation, réinitialisation) envoyés hors de la
+# requête : la durée de l'envoi SMTP ne doit pas révéler si le compte existe.
+# Synchrones en test (mail.outbox).
+AUTH_EMAIL_ASYNC = "test" not in sys.argv
+
 if "test" in sys.argv:
     REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"] = {
         scope: "10000/min" for scope in REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
@@ -267,8 +299,10 @@ SPECTACULAR_SETTINGS = {
     ),
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
-    "SERVE_AUTHENTICATION": None,
+    # Réservée aux administrateurs de la plateforme (staff), connectés via
+    # l'admin Django : la carte complète de l'API n'est pas publique.
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAdminUser"],
+    "SERVE_AUTHENTICATION": ["rest_framework.authentication.SessionAuthentication"],
     "COMPONENT_SPLIT_REQUEST": True,
     "SCHEMA_PATH_PREFIX": r"/api",
     "TAGS": [
@@ -302,6 +336,8 @@ SIMPLE_JWT = {
         minutes=int(os.getenv("JWT_ACCESS_MINUTES", "30"))
     ),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "14"))),
+    # Durée maximale d'une session, rafraîchissements compris (voir tokens.py).
+    "SESSION_MAX_LIFETIME": timedelta(days=int(os.getenv("JWT_SESSION_MAX_DAYS", "30"))),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),

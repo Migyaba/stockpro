@@ -8,6 +8,7 @@ import {
   fetchPendingInvitations,
   revokeInvitation,
   updateMember,
+  fetchPermissionCatalog,
 } from "@/lib/api/organization";
 import type {
   Organization,
@@ -20,7 +21,18 @@ export const orgQueryKeys = {
   profile: ["organization", "profile"] as const,
   members: ["organization", "members"] as const,
   invitations: ["organization", "invitations"] as const,
+  permissionCatalog: ["organization", "permission-catalog"] as const,
 };
+
+/** Permissions par rôle et permissions ajustables (fixes côté serveur). */
+export function usePermissionCatalog(enabled = true) {
+  return useQuery({
+    queryKey: orgQueryKeys.permissionCatalog,
+    queryFn: () => fetchPermissionCatalog(),
+    staleTime: Infinity,
+    enabled,
+  });
+}
 
 export function useOrganizationProfile() {
   return useQuery({

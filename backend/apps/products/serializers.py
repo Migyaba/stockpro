@@ -1,4 +1,5 @@
 from django.db.models import Sum
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from apps.core.exceptions import WarehouseForbidden
@@ -63,7 +64,11 @@ class ProductSerializer(TenantScopedSerializerMixin, serializers.ModelSerializer
             "selling_price": {"min_value": 0},
         }
 
-    def get_total_stock(self, obj) -> int:
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_total_stock(self, obj):
+        # null pendant un inventaire ouvert pour ceux qui comptent (ProductViewSet).
+        if self.context.get("stock_hidden"):
+            return None
         # Annoté par ProductViewSet ; calculé à la volée après une création.
         total = getattr(obj, "total_stock", None)
         if total is None:

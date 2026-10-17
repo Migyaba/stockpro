@@ -113,12 +113,14 @@ const STOCK_LEVEL_COLORS = {
   normal: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
   low: "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
   out_of_stock: "bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300",
+  counting: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
 };
 
 const STOCK_LEVEL_LABELS = {
   normal: "Normal",
   low: "Faible",
   out_of_stock: "Rupture",
+  counting: "Comptage en cours",
 };
 
 export function ProductSheet({ position, open, onOpenChange }: ProductSheetProps) {
@@ -167,7 +169,7 @@ export function ProductSheet({ position, open, onOpenChange }: ProductSheetProps
                 <StatCell
                   icon={Boxes}
                   label="Quantité en stock"
-                  value={formatQuantity(position.quantity)}
+                  value={position.quantity === null ? "Comptage en cours" : formatQuantity(position.quantity)}
                   highlight={stockLevel !== "normal"}
                 />
                 <StatCell
@@ -192,7 +194,9 @@ export function ProductSheet({ position, open, onOpenChange }: ProductSheetProps
                   <StatCell
                     icon={Package}
                     label="Valeur du stock"
-                    value={formatFCFA(position.quantity * position.product.purchase_price)}
+                    value={
+                      position.quantity === null ? "—" : formatFCFA(position.quantity * position.product.purchase_price)
+                    }
                     highlight
                   />
                 )}

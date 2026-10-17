@@ -17,6 +17,8 @@ import {
 import { cn } from "@/lib/utils/format";
 import { useRegister } from "@/lib/hooks/useAuth";
 import { getApiErrorMessage } from "@/lib/api/client";
+import { AuthAlert, AuthCard } from "@/components/auth/AuthCard";
+import { ResendVerification } from "@/components/auth/ResendVerification";
 
 // ─── Step definitions ──────────────────────────────────────────────────────
 type Step = "account" | "organisation" | "depot";
@@ -118,6 +120,21 @@ export default function RegisterPage() {
   const firstError = register.error
     ? getApiErrorMessage(register.error, "Impossible de créer votre espace. Réessayez.")
     : undefined;
+
+  if (register.isSuccess) {
+    return (
+      <AuthCard title="Vérifiez votre email">
+        <AuthAlert variant="success">
+          Un lien de confirmation vient d&apos;être envoyé à {register.data.email}. Ouvrez-le pour activer
+          votre compte : votre essai gratuit de 7 jours démarre à ce moment-là.
+        </AuthAlert>
+        <ResendVerification email={register.data.email} />
+        <Link href="/login" className="text-center text-sm text-zinc-500 hover:text-zinc-300">
+          Retour à la connexion
+        </Link>
+      </AuthCard>
+    );
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/80 shadow-2xl backdrop-blur-sm">

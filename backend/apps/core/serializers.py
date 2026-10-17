@@ -27,3 +27,15 @@ class TenantScopedSerializerMixin:
                 queryset.filter(organization=organization) if organization else queryset.none()
             )
         return fields
+
+
+def ensure_active_warehouse(warehouse, field=None):
+    """Aucune nouvelle opération sur un dépôt désactivé.
+
+    ``field`` : nom du champ, pour une validation au niveau de l'objet ; sans
+    lui (validate_<champ>), DRF rattache déjà l'erreur au bon champ.
+    """
+    if warehouse is not None and not warehouse.is_active:
+        message = "Ce dépôt est désactivé."
+        raise serializers.ValidationError({field: message} if field else message)
+    return warehouse

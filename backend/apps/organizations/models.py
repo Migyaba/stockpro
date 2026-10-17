@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
@@ -53,6 +54,13 @@ class Organization(TimeStampedModel):
     tax_rate_bps = models.PositiveIntegerField(default=0, help_text="Taux en points de base. 1800 = 18%.")
     prices_include_tax = models.BooleanField(default=True)
     max_discount_percent_manager = models.PositiveSmallIntegerField(default=10)
+    # Ventes et achats : dates futures refusées, dates passées limitées à ce
+    # nombre de jours (les rapports déjà consultés ne bougent plus).
+    backdating_days = models.PositiveSmallIntegerField(
+        default=30,
+        validators=[MaxValueValidator(365)],
+        help_text="Nombre de jours dans le passé autorisés pour dater une vente ou un achat.",
+    )
     status = models.CharField(
         max_length=20, choices=OrganizationStatus.choices, default=OrganizationStatus.SUSPENDED
     )
