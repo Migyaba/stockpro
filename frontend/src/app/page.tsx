@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { EB_Garamond, Geist, Geist_Mono, Syne } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { LandingNavbar } from "@/components/landing/LandingNavbar";
 import { LandingReveal } from "@/components/landing/LandingReveal";
 import { HeroSection } from "@/components/landing/HeroSection";
@@ -16,11 +17,18 @@ import { LandingFooter } from "@/components/landing/LandingFooter";
 const geist = Geist({ subsets: ["latin"], variable: "--font-lp-sans", display: "swap" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-lp-mono", display: "swap" });
 // Titres larges et mots d'accent en italique, d'après la référence de design.
-const display = Syne({ subsets: ["latin"], weight: ["500", "600"], variable: "--font-lp-display", display: "swap" });
-const accent = EB_Garamond({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  style: ["italic"],
+// Fichiers servis par le projet (sous-ensemble latin, polices variables) :
+// le chargeur Google de Turbopack échouait sur EB Garamond en CI.
+const display = localFont({
+  src: "./fonts/syne-latin.woff2",
+  weight: "400 800",
+  variable: "--font-lp-display",
+  display: "swap",
+});
+const accent = localFont({
+  src: "./fonts/eb-garamond-italic-latin.woff2",
+  weight: "400 800",
+  style: "italic",
   variable: "--font-lp-accent",
   display: "swap",
 });
