@@ -1,0 +1,14 @@
+{% autoescape off %}{{ greeting }}
+
+{% for paragraph in paragraphs %}{{ paragraph }}
+
+{% endfor %}{{ button_label }} :
+{{ button_url }}
+{% if note %}
+{{ note }}
+{% endif %}
+{{ footer_note }}
+Une question ? Répondez simplement à cet email.
+
+STOCKPRO · {{ site_url }}
+{% endautoescape %}
