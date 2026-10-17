@@ -1,4 +1,5 @@
 from django.db import transaction
+from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 
@@ -75,4 +76,14 @@ class ProductViewSet(AuditedViewSetMixin, TenantViewSet):
     def perform_update(self, serializer):
         serializer.validated_data.pop("initial_quantity", None)
         serializer.validated_data.pop("initial_warehouse", None)
+        # Changer un prix existant est réservé à prices.update : sinon un
+        # gestionnaire pourrait baisser le prix catalogue pour contourner son
+        # plafond de remise, puis le remettre.
+        product = serializer.instance
+        changes_price = any(
+            field in serializer.validated_data and serializer.validated_data[field] != getattr(product, field)
+            for field in ("selling_price", "purchase_price")
+        )
+        if changes_price and not self.request.membership.has_perm("prices.update"):
+            raise PermissionDenied("Vous n'êtes pas autorisé à modifier les prix.")
         super().perform_update(serializer)

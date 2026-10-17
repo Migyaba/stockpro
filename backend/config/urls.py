@@ -28,7 +28,7 @@ class HealthView(APIView):
 
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(settings.ADMIN_URL, admin.site.urls),
     path("api/health/", HealthView.as_view()),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(

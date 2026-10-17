@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Loader2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils/format";
 import { useLogin } from "@/lib/hooks/useAuth";
+import { ResendVerification } from "@/components/auth/ResendVerification";
 import { getApiErrorCode, getApiErrorDetails, getApiErrorMessage } from "@/lib/api/client";
 
 function LoginForm() {
@@ -62,7 +63,17 @@ function LoginForm() {
             <span>Votre session a expiré. Reconnectez-vous pour continuer.</span>
           </div>
         )}
-        {login.isError && getApiErrorCode(login.error) !== "ORGANIZATION_REQUIRED" && (
+        {login.isError && getApiErrorCode(login.error) === "EMAIL_NOT_VERIFIED" && (
+          <div className="flex flex-col gap-3 rounded-lg border border-amber-800/50 bg-amber-950/50 px-4 py-3 text-sm text-amber-300">
+            <span className="flex items-start gap-2.5">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              {getApiErrorMessage(login.error, "Confirmez votre adresse email.")}
+            </span>
+            <ResendVerification email={email} />
+          </div>
+        )}
+        {login.isError &&
+          !["ORGANIZATION_REQUIRED", "EMAIL_NOT_VERIFIED"].includes(getApiErrorCode(login.error) ?? "") && (
           <div className="flex items-start gap-2.5 rounded-lg border border-rose-800/50 bg-rose-950/50 px-4 py-3 text-sm text-rose-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <span>{getApiErrorMessage(login.error, "Email ou mot de passe incorrect.")}</span>

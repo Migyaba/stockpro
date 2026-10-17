@@ -31,6 +31,7 @@ ROLE_PERMISSIONS = {
         "billing.manage",
         "audit.view",
         "prices.view_cost",
+        "prices.update",
     },
     "ADMINISTRATOR": {
         "products.view",
@@ -61,6 +62,7 @@ ROLE_PERMISSIONS = {
         "settings.update",
         "audit.view",
         "prices.view_cost",
+        "prices.update",
     },
     "MANAGER": {
         "products.view",
@@ -94,6 +96,40 @@ ROLE_PERMISSIONS = {
         "inventory.count",
     },
 }
+
+# Permissions qu'un propriétaire ou un administrateur peut accorder ou retirer
+# individuellement à un gestionnaire ou un caissier, en plus de son rôle.
+# Gestion des membres, paramètres, facturation et journal d'audit restent liés
+# au rôle : les accorder permettrait de s'octroyer d'autres droits.
+GRANTABLE_PERMISSIONS = frozenset(
+    {
+        "products.view",
+        "products.create",
+        "products.update",
+        "products.deactivate",
+        "prices.update",
+        "prices.view_cost",
+        "stock.view",
+        "stock.transfer",
+        "purchases.view",
+        "purchases.create",
+        "purchases.confirm",
+        "purchases.receive",
+        "sales.view",
+        "sales.create",
+        "sales.validate",
+        "sales.cancel",
+        "inventory.view",
+        "inventory.create",
+        "inventory.count",
+        "inventory.validate",
+        "reports.view",
+        "reports.export",
+    }
+)
+
+# Rôles dont les permissions peuvent être ajustées membre par membre.
+CUSTOMIZABLE_ROLES = frozenset({"MANAGER", "STAFF"})
 
 SAFE_WHEN_SUSPENDED = {
     "settings.view",

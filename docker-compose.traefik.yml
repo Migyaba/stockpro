@@ -44,6 +44,9 @@ services:
       CSRF_TRUSTED_ORIGINS: https://apistockpro.miguelmissetcho.com,https://stockpro.miguelmissetcho.com
       JWT_ACCESS_MINUTES: ${JWT_ACCESS_MINUTES:-30}
       JWT_REFRESH_DAYS: ${JWT_REFRESH_DAYS:-14}
+      JWT_SESSION_MAX_DAYS: ${JWT_SESSION_MAX_DAYS:-30}
+      DJANGO_ADMIN_URL: ${DJANGO_ADMIN_URL:-admin/}
+      DJANGO_ADMIN_ALLOWED_IPS: ${DJANGO_ADMIN_ALLOWED_IPS:-}
       USE_MINIO: "true"
       MINIO_ENDPOINT_URL: ${MINIO_ENDPOINT_URL:-http://minio:9000}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-}

@@ -5,7 +5,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.core.models import TimeStampedModel, UUIDModel
-from apps.core.permissions import ROLE_PERMISSIONS
+from apps.core.permissions import CUSTOMIZABLE_ROLES, GRANTABLE_PERMISSIONS, ROLE_PERMISSIONS
 
 
 class UserManager(BaseUserManager):
@@ -75,6 +75,10 @@ class Membership(TimeStampedModel):
     )
     role = models.CharField(max_length=20, choices=Role.choices)
     is_active = models.BooleanField(default=True)
+    # Ajustements individuels (gestionnaire et caissier seulement) : codes de
+    # GRANTABLE_PERMISSIONS ajoutés au rôle, ou retirés du rôle.
+    granted_permissions = models.JSONField(default=list, blank=True)
+    revoked_permissions = models.JSONField(default=list, blank=True)
 
     class Meta:
         constraints = [
@@ -86,10 +90,18 @@ class Membership(TimeStampedModel):
     def __str__(self):
         return f"{self.user.email} @ {self.organization_id} ({self.role})"
 
+    def permissions(self) -> set[str]:
+        """Permissions effectives : celles du rôle, plus les ajustements."""
+        perms = set(ROLE_PERMISSIONS.get(self.role, set()))
+        if self.role in CUSTOMIZABLE_ROLES:
+            perms |= set(self.granted_permissions or []) & GRANTABLE_PERMISSIONS
+            perms -= set(self.revoked_permissions or [])
+        return perms
+
     def has_perm(self, code: str) -> bool:
         if not self.is_active:
             return False
-        return code in ROLE_PERMISSIONS.get(self.role, set())
+        return code in self.permissions()
 
     def warehouse_ids(self):
         return list(self.warehouse_links.values_list("warehouse_id", flat=True))

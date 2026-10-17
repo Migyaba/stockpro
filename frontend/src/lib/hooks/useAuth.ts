@@ -12,6 +12,8 @@ import {
   fetchMyMembership,
   fetchMyWarehouses,
   acceptInvitation,
+  verifyEmail,
+  resendVerification,
 } from "@/lib/api/auth";
 import type { LoginPayload, RegisterPayload } from "@/lib/types/api";
 
@@ -105,20 +107,32 @@ export function useAcceptInvitation() {
 }
 
 // ─── Register mutation ─────────────────────────────────────────────────────
+// Pas de session à l'inscription : la page affiche « vérifiez votre email ».
 export function useRegister() {
+  return useMutation({
+    mutationFn: (payload: RegisterPayload) => register(payload),
+  });
+}
+
+// Lien de confirmation : ouvre la session puis mène au tableau de bord.
+export function useVerifyEmail() {
   const { setTokens, setUser } = useAuthStore();
   const queryClient = useQueryClient();
   const router = useRouter();
 
   return useMutation({
-    mutationFn: (payload: RegisterPayload) => register(payload),
+    mutationFn: ({ uid, token }: { uid: string; token: string }) => verifyEmail(uid, token),
     onSuccess: (data) => {
       setTokens(data.access, data.refresh);
       if (data.user) setUser(data.user);
       queryClient.invalidateQueries({ queryKey: ["auth"] });
-      router.push("/dashboard");
+      router.replace("/dashboard");
     },
   });
+}
+
+export function useResendVerification() {
+  return useMutation({ mutationFn: (email: string) => resendVerification(email) });
 }
 
 // ─── Logout mutation ───────────────────────────────────────────────────────

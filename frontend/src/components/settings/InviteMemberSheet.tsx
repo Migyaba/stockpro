@@ -19,6 +19,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { useInviteMember } from "@/lib/hooks/useOrganization";
+import { useAuthStore } from "@/lib/stores/authStore";
 import { useWarehouses } from "@/lib/hooks/useWarehouses";
 import type { InviteMemberPayload, Role } from "@/lib/types/api";
 import { getApiErrorMessage } from "@/lib/api/client";
@@ -58,6 +59,9 @@ export function InviteMemberSheet({
 }: InviteMemberSheetProps) {
   const inviteMember = useInviteMember();
   const { data: warehouses = [] } = useWarehouses();
+  const currentRole = useAuthStore((s) => s.role);
+  // Seul le propriétaire peut inviter un administrateur (règle backend).
+  const roles = ROLES.filter((r) => r.value !== "ADMINISTRATOR" || currentRole === "OWNER");
 
   const [formData, setFormData] = useState<InviteMemberPayload>({
     email: "",
@@ -231,7 +235,7 @@ export function InviteMemberSheet({
                 Rôle et permissions d'accès <span className="text-rose-500">*</span>
               </label>
               <div className="space-y-2">
-                {ROLES.map((r) => {
+                {roles.map((r) => {
                   const selected = formData.role === r.value;
                   return (
                     <div

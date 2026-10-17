@@ -82,7 +82,10 @@ export default function ParametresPage() {
   const warehouseNames = new Map(warehouses.map((w) => [w.id, w.name]));
   // Ni soi-même (règle backend), ni un propriétaire si l'on n'est pas propriétaire.
   const canManage = (mem: OrganizationMember) =>
-    canUpdateMembers && mem.id !== membership?.id && (mem.role !== "OWNER" || currentRole === "OWNER");
+    canUpdateMembers &&
+    mem.id !== membership?.id &&
+    // Propriétaires et administrateurs ne sont gérés que par le propriétaire.
+    ((mem.role !== "OWNER" && mem.role !== "ADMINISTRATOR") || currentRole === "OWNER");
 
   // Local state for org form
   const [orgForm, setOrgForm] = useState({

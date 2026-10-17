@@ -15,14 +15,28 @@ export async function login(payload: LoginPayload): Promise<AuthTokens> {
   return data;
 }
 
+// L'inscription n'ouvre pas de session : un lien de confirmation part par email.
 export async function register(
   payload: RegisterPayload
-): Promise<AuthTokens & { user: UserProfile }> {
-  const { data } = await apiClient.post<AuthTokens & { user: UserProfile }>(
+): Promise<{ email: string; verification_required: boolean }> {
+  const { data } = await apiClient.post<{ email: string; verification_required: boolean }>(
     "/auth/register/",
     payload
   );
   return data;
+}
+
+// Confirme l'email (lien reçu) et ouvre la session.
+export async function verifyEmail(uid: string, token: string): Promise<AuthTokens & { user: UserProfile }> {
+  const { data } = await apiClient.post<AuthTokens & { user: UserProfile }>("/auth/email/verify/", {
+    uid,
+    token,
+  });
+  return data;
+}
+
+export async function resendVerification(email: string): Promise<void> {
+  await apiClient.post("/auth/email/resend/", { email });
 }
 
 export async function logout(refreshToken: string): Promise<void> {

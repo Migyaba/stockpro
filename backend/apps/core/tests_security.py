@@ -7,6 +7,7 @@ from django.core import mail
 from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase, override_settings
+from django.utils import timezone
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 
@@ -41,7 +42,9 @@ class SecurityTestCase(StockProAPITestCase):
 
     def member(self, role, email=None):
         email = email or f"{role.lower()}@example.com"
-        user = User.objects.create_user(email=email, password=PASSWORD, first_name="M", last_name="R")
+        user = User.objects.create_user(
+            email=email, password=PASSWORD, first_name="M", last_name="R", email_verified_at=timezone.now()
+        )
         membership = Membership.objects.create(user=user, organization=self.org, role=role)
         res = self.client.post("/api/auth/login/", {"email": email, "password": PASSWORD}, format="json")
         self.assertEqual(res.status_code, 200, res.data)
@@ -468,6 +471,166 @@ class AuditFollowUpTests(SecurityTestCase):
         self.assertEqual(codes[-1], 429)
 
 
+class RolesAndPermissionsTests(SecurityTestCase):
+    """Administrateurs gérés par le propriétaire seul, prix réservés à
+    prices.update, permissions ajustables membre par membre."""
+
+    def test_administrator_cannot_manage_other_administrators(self):
+        _, admin = self.member(Role.ADMINISTRATOR, "admin1@example.com")
+        other_admin, _ = self.member(Role.ADMINISTRATOR, "admin2@example.com")
+        staff, _ = self.member(Role.STAFF)
+        self.auth(admin)
+        self.assertEqual(
+            self.client.patch(f"/api/users/{other_admin.id}/", {"role": "STAFF"}, format="json").status_code, 403
+        )
+        self.assertEqual(
+            self.client.patch(f"/api/users/{other_admin.id}/", {"is_active": False}, format="json").status_code, 403
+        )
+        self.assertEqual(
+            self.client.patch(f"/api/users/{staff.id}/", {"role": "ADMINISTRATOR"}, format="json").status_code, 403
+        )
+        self.assertEqual(
+            self.client.post("/api/invitations/", {"email": "new@example.com", "role": "ADMINISTRATOR"}, format="json").status_code,
+            400,
+        )
+        self.assertEqual(self.client.patch(f"/api/users/{staff.id}/", {"role": "MANAGER"}, format="json").status_code, 200)
+        self.auth(self.owner_tokens)
+        self.assertEqual(
+            self.client.patch(f"/api/users/{other_admin.id}/", {"role": "MANAGER"}, format="json").status_code, 200
+        )
+
+    def test_manager_cannot_change_prices_unless_granted(self):
+        manager, tokens = self.member(Role.MANAGER)
+        self.auth(tokens)
+        url = f"/api/products/{self.product_id}/"
+        self.assertEqual(self.client.patch(url, {"selling_price": 500}, format="json").status_code, 403)
+        self.assertEqual(self.client.patch(url, {"name": "Nouveau nom"}, format="json").status_code, 200)
+        self.auth(self.owner_tokens)
+        res = self.client.patch(f"/api/users/{manager.id}/", {"granted_permissions": ["prices.update"]}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn("prices.update", res.data["permissions"])
+        self.auth(tokens)
+        self.assertEqual(self.client.patch(url, {"selling_price": 500}, format="json").status_code, 200)
+        self.assertIn("prices.update", self.client.get("/api/auth/membership/").data["permissions"])
+
+    def test_revoked_permission_is_enforced(self):
+        staff, tokens = self.member(Role.STAFF)
+        self.client.patch(f"/api/users/{staff.id}/", {"revoked_permissions": ["sales.create"]}, format="json")
+        self.auth(tokens)
+        res = self.client.post(
+            "/api/sales/", {"warehouse": self.warehouse_id, "items": [{"product": self.product_id, "quantity": 1}]}, format="json"
+        )
+        self.assertEqual(res.status_code, 403)
+
+    def test_member_management_permissions_cannot_be_granted(self):
+        staff, _ = self.member(Role.STAFF)
+        res = self.client.patch(f"/api/users/{staff.id}/", {"granted_permissions": ["users.update"]}, format="json")
+        self.assertEqual(res.status_code, 400)
+
+    def test_overrides_are_dropped_for_administrators(self):
+        manager, _ = self.member(Role.MANAGER)
+        self.client.patch(f"/api/users/{manager.id}/", {"revoked_permissions": ["sales.create"]}, format="json")
+        res = self.client.patch(f"/api/users/{manager.id}/", {"role": "ADMINISTRATOR"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        manager.refresh_from_db()
+        self.assertEqual(manager.revoked_permissions, [])
+        self.assertTrue(manager.has_perm("sales.create"))
+
+
+class EmailVerificationTests(StockProAPITestCase):
+    """L'inscription n'ouvre pas de session : l'essai démarre à la
+    confirmation de l'email."""
+
+    payload = {
+        "email": "nouveau@example.com",
+        "password": PASSWORD,
+        "first_name": "Awa",
+        "last_name": "K",
+        "organization_name": "Boutique Nouvelle",
+        "warehouse_name": "Boutique",
+        "country": "BJ",
+        "currency": "XOF",
+        "timezone": "Africa/Porto-Novo",
+    }
+
+    def setUp(self):
+        cache.clear()
+
+    def login(self, password=PASSWORD):
+        return self.client.post(
+            "/api/auth/login/", {"email": self.payload["email"], "password": password}, format="json"
+        )
+
+    def test_registration_waits_for_email_confirmation(self):
+        res = self.client.post("/api/auth/register/", self.payload, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertNotIn("access", res.data)
+        self.assertTrue(res.data["verification_required"])
+        org = Organization.objects.get(name="Boutique Nouvelle")
+        self.assertFalse(org.has_operational_access())
+        self.assertEqual(self.login().data["error"]["code"], "EMAIL_NOT_VERIFIED")
+        # Mauvais mot de passe : rien ne révèle que le compte attend une confirmation.
+        self.assertNotEqual(self.login("mauvais").data.get("error", {}).get("code"), "EMAIL_NOT_VERIFIED")
+
+    def test_confirmation_starts_trial_and_opens_session_once(self):
+        self.client.post("/api/auth/register/", self.payload, format="json")
+        query = self.verification_query(self.payload["email"])
+        res = self.client.post("/api/auth/email/verify/", query, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertIn("access", res.data)
+        org = Organization.objects.get(name="Boutique Nouvelle")
+        self.assertEqual(org.status, OrganizationStatus.TRIAL)
+        self.assertTrue(org.has_operational_access())
+        self.assertEqual(self.client.post("/api/auth/email/verify/", query, format="json").status_code, 400)
+        self.assertEqual(self.login().status_code, 200)
+
+    def test_resend_only_sends_to_unconfirmed_accounts(self):
+        self.client.post("/api/auth/register/", self.payload, format="json")
+        mail.outbox.clear()
+        for email in (self.payload["email"], "inconnu@example.com"):
+            res = self.client.post("/api/auth/email/resend/", {"email": email}, format="json")
+            self.assertEqual(res.status_code, 200)
+        self.assertEqual([m.to for m in mail.outbox], [[self.payload["email"]]])
+
+
+class AdminAndDocsProtectionTests(SecurityTestCase):
+    """Doc de l'API réservée au staff ; admin limité en tentatives et par IP."""
+
+    def staff_login(self):
+        User.objects.create_superuser(email="staff@example.com", password=PASSWORD)
+        self.client.credentials()
+        self.client.force_login(User.objects.get(email="staff@example.com"))
+
+    def test_api_docs_are_reserved_to_platform_staff(self):
+        self.client.credentials()
+        self.assertIn(self.client.get("/api/schema/").status_code, (401, 403))
+        # Un propriétaire d'organisation (JWT) n'y a pas accès non plus.
+        self.auth(self.owner_tokens)
+        self.assertIn(self.client.get("/api/schema/").status_code, (401, 403))
+        self.staff_login()
+        self.assertEqual(self.client.get("/api/schema/").status_code, 200)
+        self.assertEqual(self.client.get("/api/docs/").status_code, 200)
+
+    @override_settings(ADMIN_LOGIN_ATTEMPTS=3)
+    def test_admin_login_is_rate_limited_per_ip(self):
+        cache.clear()
+        self.client.credentials()
+        codes = [
+            self.client.post("/admin/login/", {"username": "x@example.com", "password": "bad"}).status_code
+            for _ in range(4)
+        ]
+        self.assertEqual(codes[:3], [200, 200, 200])
+        self.assertEqual(codes[3], 429)
+
+    def test_admin_and_docs_hidden_outside_allowed_networks(self):
+        import ipaddress
+
+        with override_settings(ADMIN_ALLOWED_NETWORKS=[ipaddress.ip_network("10.0.0.0/8")]):
+            self.assertEqual(self.client.get("/admin/", REMOTE_ADDR="203.0.113.7").status_code, 404)
+            self.assertEqual(self.client.get("/api/docs/", REMOTE_ADDR="203.0.113.7").status_code, 404)
+            self.assertEqual(self.client.get("/admin/", REMOTE_ADDR="10.1.2.3").status_code, 302)
+
+
 class BillingHardeningTests(SecurityTestCase):
     @override_settings(DEBUG=True, ALPHAPAY_WEBHOOK_SECRET="")
     def test_unsigned_webhook_rejected_even_in_debug(self):
@@ -515,7 +678,9 @@ class ConcurrentCompletionTests(TransactionTestCase):
     """§67.1 : deux validations simultanées sur la dernière unité, une seule réussit."""
 
     def test_only_one_sale_gets_the_last_unit(self):
-        user = User.objects.create_user(email="c@example.com", password=PASSWORD, first_name="C", last_name="C")
+        user = User.objects.create_user(
+            email="c@example.com", password=PASSWORD, first_name="C", last_name="C", email_verified_at=timezone.now()
+        )
         org = Organization.objects.create(name="Concurrence", status="ACTIVE")
         membership = Membership.objects.create(user=user, organization=org, role=Role.OWNER)
         warehouse = Warehouse.objects.create(organization=org, name="Dépôt", code="MAIN")

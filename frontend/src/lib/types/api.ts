@@ -196,6 +196,17 @@ export interface OrganizationMember {
   is_active: boolean;
   created_at: string;
   warehouse_ids?: string[];
+  /** Ajustements individuels (gestionnaire et caissier). */
+  granted_permissions?: string[];
+  revoked_permissions?: string[];
+  /** Permissions effectives : rôle + ajustements. */
+  permissions?: string[];
+}
+
+export interface PermissionCatalog {
+  roles: Record<Role, string[]>;
+  grantable: string[];
+  customizable_roles: Role[];
 }
 
 export interface InviteMemberPayload {
@@ -222,6 +233,8 @@ export interface UpdateMemberPayload {
   is_active?: boolean;
   /** Liste vide = accès à tous les dépôts. */
   warehouse_ids?: string[];
+  granted_permissions?: string[];
+  revoked_permissions?: string[];
 }
 
 export interface SaleItem {

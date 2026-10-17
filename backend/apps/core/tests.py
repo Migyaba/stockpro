@@ -1,3 +1,4 @@
+from django.core import mail
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -22,6 +23,19 @@ class StockProAPITestCase(APITestCase):
             format="json",
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.data)
+        # Inscription sans session : on suit le lien de confirmation reçu.
+        return self.verify_email(email)
+
+    def verification_query(self, email):
+        message = next(m for m in reversed(mail.outbox) if email in m.to and "verify-email" in m.body)
+        link = next(line for line in message.body.splitlines() if "verify-email" in line)
+        return dict(part.split("=", 1) for part in link.split("?", 1)[1].split("&"))
+
+    def verify_email(self, email):
+        res = self.client.post("/api/auth/email/verify/", self.verification_query(email), format="json")
+        self.assertEqual(res.status_code, status.HTTP_200_OK, res.data)
+        # Les tests qui comptent les emails ne doivent voir que les leurs.
+        mail.outbox.clear()
         return res.data
 
     def auth(self, tokens):

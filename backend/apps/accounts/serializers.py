@@ -12,7 +12,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import Invitation, Membership, MembershipWarehouse, Role, User
-from apps.accounts.tokens import issue_tokens
+from apps.core.permissions import CUSTOMIZABLE_ROLES, GRANTABLE_PERMISSIONS, ROLE_PERMISSIONS
 from apps.core.exceptions import BusinessError
 from apps.core.serializers import TenantScopedSerializerMixin
 from apps.inventory.models import Warehouse
@@ -77,16 +77,17 @@ class RegisterSerializer(serializers.Serializer):
             phone=validated.get("phone", ""),
         )
         trial_days = PlatformSubscriptionConfig.get_config().trial_days
-        now = timezone.now()
+        # En attente de la confirmation de l'email : l'essai démarre à ce
+        # moment-là (start_pending_trials), pas à l'inscription.
         org = Organization.objects.create(
             name=validated["organization_name"],
             email=user.email,
             country=validated["country"].upper(),
             currency=validated["currency"].upper(),
             timezone=validated["timezone"],
-            status=OrganizationStatus.TRIAL if trial_days else OrganizationStatus.SUSPENDED,
+            status=OrganizationStatus.SUSPENDED,
             subscription_plan=SubscriptionPlan.TRIAL if trial_days else SubscriptionPlan.MONTHLY,
-            trial_ends_at=now + timedelta(days=trial_days) if trial_days else None,
+            trial_ends_at=None,
         )
         membership = Membership.objects.create(
             user=user, organization=org, role=Role.OWNER, is_active=True
@@ -96,8 +97,23 @@ class RegisterSerializer(serializers.Serializer):
             name=validated["warehouse_name"],
             code="MAIN",
         )
-        tokens = issue_tokens(user, membership)
-        return user, membership, tokens
+        return user, membership
+
+
+def start_pending_trials(user):
+    """Démarre l'essai des organisations créées par ce compte et restées en
+    attente de la confirmation de son email."""
+    trial_days = PlatformSubscriptionConfig.get_config().trial_days
+    if not trial_days:
+        return
+    now = timezone.now()
+    Organization.objects.filter(
+        memberships__user=user,
+        memberships__role=Role.OWNER,
+        status=OrganizationStatus.SUSPENDED,
+        subscription_plan=SubscriptionPlan.TRIAL,
+        trial_ends_at__isnull=True,
+    ).update(status=OrganizationStatus.TRIAL, trial_ends_at=now + timedelta(days=trial_days))
 
 
 class LoginSerializer(serializers.Serializer):
@@ -115,6 +131,12 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Identifiants incorrects.") from exc
         if not user.is_active or not user.check_password(attrs["password"]):
             raise serializers.ValidationError("Identifiants incorrects.")
+        # Signalé seulement avec le bon mot de passe : ne révèle rien à un tiers.
+        if user.email_verified_at is None:
+            raise BusinessError(
+                "Confirmez votre adresse email : ouvrez le lien reçu à l'inscription.",
+                code="EMAIL_NOT_VERIFIED",
+            )
         memberships = list(
             user.memberships.select_related("organization").filter(is_active=True)
         )
@@ -176,6 +198,8 @@ class MembershipSerializer(TenantScopedSerializerMixin, serializers.ModelSeriali
             "is_active",
             "created_at",
             "warehouse_ids",
+            "granted_permissions",
+            "revoked_permissions",
         ]
         read_only_fields = ["id", "created_at"]
 
@@ -183,11 +207,36 @@ class MembershipSerializer(TenantScopedSerializerMixin, serializers.ModelSeriali
     warehouse_ids = serializers.PrimaryKeyRelatedField(
         many=True, queryset=Warehouse.objects.all(), required=False, write_only=True
     )
+    # Ajustements individuels : ne concernent que gestionnaire et caissier.
+    granted_permissions = serializers.ListField(
+        child=serializers.ChoiceField(choices=sorted(GRANTABLE_PERMISSIONS)), required=False
+    )
+    revoked_permissions = serializers.ListField(
+        child=serializers.ChoiceField(choices=sorted(GRANTABLE_PERMISSIONS)), required=False
+    )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["warehouse_ids"] = [str(i) for i in instance.warehouse_ids()]
+        data["permissions"] = sorted(instance.permissions())
         return data
+
+    def validate(self, attrs):
+        # Ajustements recalculés par rapport au rôle final : un ajout déjà
+        # inclus dans le rôle ou un retrait absent du rôle n'a pas de sens, et
+        # les rôles propriétaire / administrateur n'en ont aucun.
+        instance = self.instance
+        role = attrs.get("role", instance.role if instance else None)
+        granted = set(attrs.get("granted_permissions", instance.granted_permissions if instance else []))
+        revoked = set(attrs.get("revoked_permissions", instance.revoked_permissions if instance else []))
+        if role in CUSTOMIZABLE_ROLES:
+            role_perms = ROLE_PERMISSIONS.get(role, set())
+            attrs["granted_permissions"] = sorted(granted - role_perms)
+            attrs["revoked_permissions"] = sorted(revoked & role_perms)
+        else:
+            attrs["granted_permissions"] = []
+            attrs["revoked_permissions"] = []
+        return attrs
 
     @transaction.atomic
     def update(self, instance, validated_data):
@@ -233,6 +282,8 @@ class InvitationSerializer(TenantScopedSerializerMixin, serializers.ModelSeriali
     def validate_role(self, value):
         if value == Role.OWNER:
             raise serializers.ValidationError("Impossible d'inviter un second owner via invitation.")
+        if value == Role.ADMINISTRATOR and self.context["request"].membership.role != Role.OWNER:
+            raise serializers.ValidationError("Seul le propriétaire peut inviter un administrateur.")
         return value
 
     @transaction.atomic
