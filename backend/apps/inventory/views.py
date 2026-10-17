@@ -149,7 +149,6 @@ class TransferViewSet(TenantViewSet):
         write_audit(request, action=AuditAction.VALIDATE, entity=transfer)
         notify(
             request.organization,
-            permission="stock.view",
             kind=NotificationKind.TRANSFER_COMPLETED,
             message=(
                 f"Le transfert {transfer.reference} ({transfer.source.name} → "
@@ -261,7 +260,6 @@ class InventoryCountViewSet(TenantViewSet):
         inventory = submit_for_review(self.get_object(), request.membership)
         notify(
             request.organization,
-            permission="inventory.validate",
             kind=NotificationKind.INVENTORY_REVIEW,
             message=f"L'inventaire {inventory.reference} ({inventory.warehouse.name}) attend votre validation.",
             link=f"/inventaires/{inventory.id}",

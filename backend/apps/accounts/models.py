@@ -79,6 +79,9 @@ class Membership(TimeStampedModel):
     # GRANTABLE_PERMISSIONS ajoutés au rôle, ou retirés du rôle.
     granted_permissions = models.JSONField(default=list, blank=True)
     revoked_permissions = models.JSONField(default=list, blank=True)
+    # Choix explicites {type de notification: bool} pour l'envoi par email ;
+    # un type absent suit EMAIL_DEFAULTS (apps.notifications.models).
+    email_notifications = models.JSONField(default=dict, blank=True)
 
     class Meta:
         constraints = [

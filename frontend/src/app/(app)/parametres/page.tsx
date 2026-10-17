@@ -41,6 +41,7 @@ import { toast } from "@/lib/stores/toastStore";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { ChangePasswordForm } from "@/components/settings/ChangePasswordForm";
 import { AuditLogSection } from "@/components/settings/AuditLogSection";
+import { NotificationPreferencesForm } from "@/components/settings/NotificationPreferencesForm";
 import { EditMemberSheet } from "@/components/settings/EditMemberSheet";
 
 type SettingsTab = "org" | "warehouses" | "team" | "audit" | "security" | "billing";
@@ -681,7 +682,12 @@ export default function ParametresPage() {
 
       {/* ─── Tab 4 : Mon compte (tous les rôles) ──────────────────────────── */}
       {currentTab === "audit" && <AuditLogSection />}
-      {currentTab === "security" && <ChangePasswordForm />}
+      {currentTab === "security" && (
+        <div className="space-y-6">
+          <ChangePasswordForm />
+          <NotificationPreferencesForm />
+        </div>
+      )}
 
       {/* ─── Tab 5 : Facturation & Abonnement AlphaPay ──────────────────── */}
       {currentTab === "billing" && <SubscriptionSection />}

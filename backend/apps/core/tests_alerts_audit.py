@@ -1,7 +1,16 @@
-from apps.accounts.models import Role
+from django.conf import settings
+from django.core import mail
+from django.core.cache import cache
+from django.test import override_settings
+from django.db import transaction
+
+from apps.accounts.models import Role, User
+from apps.core.tests import StockProAPITestCase
+from apps.organizations.models import Organization
 from apps.audit.models import AuditLog
 from apps.core.tests_security import SecurityTestCase
-from apps.notifications.models import Notification
+from apps.notifications.models import Notification, NotificationKind
+from apps.notifications.services import notify
 
 
 class StockAlertTests(SecurityTestCase):
@@ -73,6 +82,87 @@ class StockAlertTests(SecurityTestCase):
         self.assertEqual(self.client.post(f"/api/notifications/{note.id}/read/").status_code, 404)
 
 
+class NotificationEmailTests(SecurityTestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.patch(f"/api/products/{self.product_id}/", {"minimum_stock": 5}, format="json")
+        mail.outbox.clear()
+
+    def sell(self, quantity):
+        sale = self.create_sale(quantity=quantity)
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.client.post(f"/api/sales/{sale}/complete/")
+        self.assertEqual(res.status_code, 200, res.data)
+
+    def test_stock_alert_is_emailed_to_recipients(self):
+        self.member(Role.MANAGER)
+        self.member(Role.STAFF)
+        self.sell(16)
+        self.assertEqual(sorted(m.to[0] for m in mail.outbox), ["manager@example.com", "owner@example.com"])
+        message = mail.outbox[0]
+        self.assertEqual(message.subject, "Stock faible · Boutique A")
+        self.assertIn("Produit TS-1", message.body)
+        self.assertIn("/stock/alertes", message.body)
+        self.assertIn("/stock/alertes", message.alternatives[0][0])
+
+    def test_preferences_are_respected(self):
+        _, manager_tokens = self.member(Role.MANAGER)
+        self.auth(manager_tokens)
+        res = self.client.patch(
+            "/api/notifications/preferences/", {"email": {"STOCK_LOW": False}}, format="json"
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        prefs = {k["kind"]: k["email"] for k in res.data["kinds"]}
+        self.assertFalse(prefs["STOCK_LOW"])
+        self.assertTrue(prefs["STOCK_OUT"])
+        self.auth(self.owner_tokens)
+        self.sell(16)
+        self.assertEqual([m.to[0] for m in mail.outbox], ["owner@example.com"])
+        # La notification interne, elle, reste.
+        self.assertEqual(Notification.objects.filter(kind="STOCK_LOW").count(), 2)
+
+    def test_informative_kinds_are_off_by_default_and_opt_in(self):
+        prefs = {k["kind"]: k["email"] for k in self.client.get("/api/notifications/preferences/").data["kinds"]}
+        self.assertEqual(
+            prefs,
+            {"STOCK_LOW": True, "STOCK_OUT": True, "PURCHASE_RECEIVED": False,
+             "TRANSFER_COMPLETED": False, "INVENTORY_REVIEW": True},
+        )
+        self.client.patch("/api/notifications/preferences/", {"email": {"TRANSFER_COMPLETED": True}}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            notify(self.org, kind=NotificationKind.TRANSFER_COMPLETED, message="Transfert validé.", link="/stock/transferts")
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_preferences_list_only_receivable_kinds_and_reject_others(self):
+        _, staff_tokens = self.member(Role.STAFF)
+        self.auth(staff_tokens)
+        kinds = [k["kind"] for k in self.client.get("/api/notifications/preferences/").data["kinds"]]
+        self.assertNotIn("STOCK_LOW", kinds)
+        for payload in ({"STOCK_LOW": True}, {"STOCK_OUT": "oui"}, ["STOCK_OUT"]):
+            res = self.client.patch("/api/notifications/preferences/", {"email": payload}, format="json")
+            self.assertEqual(res.status_code, 400, payload)
+
+    def test_unverified_or_inactive_members_get_no_email(self):
+        unverified, _ = self.member(Role.MANAGER)
+        unverified.user.email_verified_at = None
+        unverified.user.save()
+        inactive, _ = self.member(Role.MANAGER, email="inactive@example.com")
+        inactive.is_active = False
+        inactive.save()
+        self.sell(16)
+        self.assertEqual([m.to[0] for m in mail.outbox], ["owner@example.com"])
+
+    def test_rolled_back_operation_sends_nothing(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            try:
+                with transaction.atomic():
+                    notify(self.org, kind=NotificationKind.STOCK_OUT, message="Rupture.")
+                    raise RuntimeError
+            except RuntimeError:
+                pass
+        self.assertEqual(mail.outbox, [])
+
+
 class AuditTrailTests(SecurityTestCase):
     def test_price_change_keeps_old_and_new_values(self):
         self.client.patch(f"/api/products/{self.product_id}/", {"selling_price": 1200, "name": "Produit TS-1"}, format="json")
@@ -131,3 +221,46 @@ class StockLevelConsistencyTests(SecurityTestCase):
         self.assertEqual(self.client.get("/api/alerts/stock/").data["summary"]["low"], 1)
         self.assertEqual(self.client.get("/api/dashboard/").data["low_stock_count"], 1)
         self.assertEqual(self.client.get("/api/stock/", {"status": "NORMAL"}).data["count"], 0)
+
+
+class SignupAlertTests(StockProAPITestCase):
+    payload = {
+        "email": "nouveau@example.com",
+        "password": "Motdepasse-solide-42",
+        "first_name": "Awa",
+        "last_name": "K",
+        "phone": "+22990000000",
+        "organization_name": "Boutique Nouvelle",
+    }
+
+    def setUp(self):
+        cache.clear()
+
+    def signup(self):
+        res = self.client.post("/api/auth/register/", self.payload, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        return [m for m in mail.outbox if m.subject.startswith("Nouvelle inscription")]
+
+    def test_superusers_are_alerted_by_default(self):
+        User.objects.create_superuser(email="root@stockpro.test", password="x" * 12)
+        User.objects.create_superuser(email="ancien@stockpro.test", password="x" * 12, is_active=False)
+        alerts = self.signup()
+        self.assertEqual([m.to for m in alerts], [["root@stockpro.test"]])
+        alert = alerts[0]
+        self.assertEqual(alert.subject, "Nouvelle inscription · Boutique Nouvelle")
+        self.assertIn("Awa K · nouveau@example.com", alert.body)
+        self.assertIn("+22990000000", alert.body)
+        org = Organization.objects.get(name="Boutique Nouvelle")
+        self.assertIn(f"/{settings.ADMIN_URL}organizations/organization/{org.pk}/change/", alert.body)
+
+    @override_settings(SIGNUP_ALERT_EMAILS=["equipe@stockpro.test", "ventes@stockpro.test"])
+    def test_configured_addresses_replace_superusers(self):
+        User.objects.create_superuser(email="root@stockpro.test", password="x" * 12)
+        alerts = self.signup()
+        self.assertEqual(len(alerts), 2)
+        self.assertEqual(sorted(m.to[0] for m in alerts), ["equipe@stockpro.test", "ventes@stockpro.test"])
+
+    @override_settings(SIGNUP_ALERT_EMAILS=["off"])
+    def test_alert_can_be_disabled(self):
+        User.objects.create_superuser(email="root@stockpro.test", password="x" * 12)
+        self.assertEqual(self.signup(), [])

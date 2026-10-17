@@ -81,7 +81,6 @@ class PurchaseViewSet(TenantViewSet):
         purchase = receipt.purchase
         notify(
             request.organization,
-            permission="purchases.view",
             kind=NotificationKind.PURCHASE_RECEIVED,
             message=(
                 f"Réception {receipt.reference} de l'achat {purchase.reference} "

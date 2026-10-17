@@ -37,6 +37,7 @@ from apps.accounts.emails import (
     email_verification_token,
     send_invitation_email,
     send_password_reset_email,
+    send_signup_alert,
     send_verification_email,
 )
 from apps.accounts.tokens import issue_tokens, password_fingerprint, session_expired
@@ -59,9 +60,17 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
-            user, _membership = serializer.save()
+            user, membership = serializer.save()
         # Pas de session tant que l'email n'est pas confirmé.
         send_verification_email(user)
+        organization = membership.organization
+        send_signup_alert(
+            user,
+            organization,
+            request.build_absolute_uri(
+                f"/{settings.ADMIN_URL}organizations/organization/{organization.pk}/change/"
+            ),
+        )
         return Response(
             {"email": user.email, "verification_required": True},
             status=status.HTTP_201_CREATED,

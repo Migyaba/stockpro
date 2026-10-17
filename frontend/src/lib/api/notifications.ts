@@ -1,5 +1,12 @@
 import apiClient from "@/lib/api/client";
-import type { AppNotification, AuditEntry, PaginatedResponse, StockAlertPage } from "@/lib/types/api";
+import type {
+  AppNotification,
+  AuditEntry,
+  NotificationKind,
+  NotificationPreferences,
+  PaginatedResponse,
+  StockAlertPage,
+} from "@/lib/types/api";
 
 export async function fetchNotifications(unreadOnly = false): Promise<PaginatedResponse<AppNotification>> {
   const { data } = await apiClient.get("/notifications/", {
@@ -19,6 +26,18 @@ export async function markNotificationRead(id: string): Promise<void> {
 
 export async function markAllNotificationsRead(): Promise<void> {
   await apiClient.post("/notifications/read-all/");
+}
+
+export async function fetchNotificationPreferences(): Promise<NotificationPreferences> {
+  const { data } = await apiClient.get<NotificationPreferences>("/notifications/preferences/");
+  return data;
+}
+
+export async function updateNotificationPreferences(
+  email: Partial<Record<NotificationKind, boolean>>
+): Promise<NotificationPreferences> {
+  const { data } = await apiClient.patch<NotificationPreferences>("/notifications/preferences/", { email });
+  return data;
 }
 
 export async function fetchStockAlerts(params: {

@@ -3,11 +3,13 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchAuditLog,
+  fetchNotificationPreferences,
   fetchNotifications,
   fetchStockAlerts,
   fetchUnreadCount,
   markAllNotificationsRead,
   markNotificationRead,
+  updateNotificationPreferences,
 } from "@/lib/api/notifications";
 
 export function useUnreadCount() {
@@ -31,6 +33,21 @@ export function useMarkNotificationRead() {
   return useMutation({
     mutationFn: (id?: string) => (id ? markNotificationRead(id) : markAllNotificationsRead()),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useNotificationPreferences() {
+  return useQuery({
+    queryKey: ["notifications", "preferences"],
+    queryFn: fetchNotificationPreferences,
+  });
+}
+
+export function useUpdateNotificationPreferences() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: updateNotificationPreferences,
+    onSuccess: (data) => queryClient.setQueryData(["notifications", "preferences"], data),
   });
 }
 

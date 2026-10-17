@@ -643,13 +643,25 @@ export interface StockAlertPage extends PaginatedResponse<StockAlert> {
   summary: { out: number; low: number; total: number };
 }
 
+export type NotificationKind =
+  | "STOCK_LOW"
+  | "STOCK_OUT"
+  | "PURCHASE_RECEIVED"
+  | "TRANSFER_COMPLETED"
+  | "INVENTORY_REVIEW";
+
 export interface AppNotification {
   id: string;
-  kind: "STOCK_LOW" | "STOCK_OUT" | "PURCHASE_RECEIVED" | "TRANSFER_COMPLETED" | "INVENTORY_REVIEW";
+  kind: NotificationKind;
   message: string;
   link: string;
   read_at: string | null;
   created_at: string;
+}
+
+export interface NotificationPreferences {
+  email_verified: boolean;
+  kinds: { kind: NotificationKind; label: string; description: string; email: boolean }[];
 }
 
 export interface AuditEntry {
