@@ -5,7 +5,6 @@ from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
 from django.db import transaction
 from django.utils import timezone
 from django.utils.encoding import force_bytes
@@ -34,7 +33,12 @@ from apps.accounts.serializers import (
     invitation_url,
     start_pending_trials,
 )
-from apps.accounts.emails import email_verification_token, send_password_reset_email, send_verification_email
+from apps.accounts.emails import (
+    email_verification_token,
+    send_invitation_email,
+    send_password_reset_email,
+    send_verification_email,
+)
 from apps.accounts.tokens import issue_tokens, password_fingerprint, session_expired
 from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
@@ -446,21 +450,9 @@ class InvitationViewSet(TenantViewSet):
 
 
 def _send_invitation_email(invitation, inviter):
-    try:
-        send_mail(
-            subject=f"STOCKPRO — Invitation à rejoindre {invitation.organization.name}",
-            message=(
-                "Bonjour,\n\n"
-                f"{inviter.full_name or inviter.email} vous invite à rejoindre "
-                f"« {invitation.organization.name} » sur STOCKPRO.\n\n"
-                f"Pour accepter, ouvrez ce lien (valable 7 jours) :\n{invitation_url(invitation.raw_token)}\n"
-            ),
-            from_email=None,
-            recipient_list=[invitation.email],
-        )
-    except Exception:
-        # Le lien reste partageable depuis l'interface (WhatsApp, SMS).
-        logger.exception("Échec d'envoi de l'email d'invitation.")
+    # En arrière-plan ; en cas d'échec, le lien reste partageable depuis
+    # l'interface (WhatsApp, SMS).
+    send_invitation_email(invitation, inviter, invitation_url(invitation.raw_token))
 
 
 def _find_invitation(raw_token, *, lock=False):
