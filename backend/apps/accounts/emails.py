@@ -3,7 +3,7 @@ import threading
 
 from django.conf import settings
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.core.mail import EmailMultiAlternatives
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -41,17 +41,20 @@ def _render(context):
     )
 
 
-def send_in_background(subject, context, recipient):
-    """Envoi hors de la requête : la durée de l'envoi SMTP ne doit pas révéler
-    si un compte existe, ni bloquer l'utilisateur. Synchrone en test
-    (AUTH_EMAIL_ASYNC)."""
-    text, html = _render(context)
+def _deliver(subject, messages):
+    """Envoie [(texte, html, destinataire)] sur une seule connexion SMTP, hors de
+    la requête : la durée de l'envoi ne doit pas révéler si un compte existe, ni
+    bloquer l'utilisateur. Synchrone en test (AUTH_EMAIL_ASYNC)."""
 
     def send():
         try:
-            message = EmailMultiAlternatives(subject=subject, body=text, to=[recipient])
-            message.attach_alternative(html, "text/html")
-            message.send()
+            with get_connection() as connection:
+                for text, html, recipient in messages:
+                    message = EmailMultiAlternatives(
+                        subject=subject, body=text, to=[recipient], connection=connection
+                    )
+                    message.attach_alternative(html, "text/html")
+                    message.send()
         except Exception:
             logger.exception("Échec d'envoi de l'email « %s ».", subject)
 
@@ -59,6 +62,11 @@ def send_in_background(subject, context, recipient):
         threading.Thread(target=send, daemon=True).start()
     else:
         send()
+
+
+def send_in_background(subject, context, recipient):
+    text, html = _render(context)
+    _deliver(subject, [(text, html, recipient)])
 
 
 def _greeting(user):
@@ -134,3 +142,75 @@ def send_invitation_email(invitation, inviter, link):
         },
         invitation.email,
     )
+
+
+def send_notification_emails(organization, kind, message, link, users):
+    """Copie par email d'une notification interne, pour les membres qui l'ont choisie."""
+    from apps.notifications.models import NotificationKind
+
+    label = NotificationKind(kind).label
+    site_url = settings.FRONTEND_URL.rstrip("/")
+    messages = []
+    for user in users:
+        text, html = _render(
+            {
+                "title": label,
+                "preheader": message,
+                "greeting": _greeting(user),
+                "paragraphs": [message],
+                "button_label": "Voir dans STOCKPRO",
+                "button_url": f"{site_url}{link or '/dashboard'}",
+                "footer_note": (
+                    f"Vous recevez cet email en tant que membre de « {organization.name} ». "
+                    "Pour choisir les emails que vous recevez : Paramètres › Mon compte."
+                ),
+            }
+        )
+        messages.append((text, html, user.email))
+    _deliver(f"{label} · {organization.name}", messages)
+
+
+def _signup_alert_recipients():
+    configured = settings.SIGNUP_ALERT_EMAILS
+    if [e.lower() for e in configured] == ["off"]:
+        return []
+    if configured:
+        return configured
+    from apps.accounts.models import User
+
+    return list(
+        User.objects.filter(is_superuser=True, is_active=True)
+        .exclude(email="")
+        .values_list("email", flat=True)
+    )
+
+
+def send_signup_alert(user, organization, admin_url):
+    """Prévient l'équipe STOCKPRO d'une nouvelle inscription (organisation en
+    attente de confirmation de l'email du propriétaire)."""
+    recipients = _signup_alert_recipients()
+    if not recipients:
+        return
+    owner = user.full_name or user.email
+    details = [
+        f"Organisation : {organization.name} ({organization.country}, {organization.currency})",
+        f"Propriétaire : {owner} · {user.email}",
+    ]
+    if user.phone:
+        details.append(f"Téléphone : {user.phone}")
+    text, html = _render(
+        {
+            "title": "Nouvelle inscription",
+            "preheader": f"{organization.name} vient de créer son espace.",
+            "greeting": "Bonjour,",
+            "paragraphs": [
+                f"« {organization.name} » vient de créer son espace STOCKPRO. L'essai gratuit démarrera "
+                "quand le propriétaire aura confirmé son adresse email.",
+                *details,
+            ],
+            "button_label": "Voir dans l'administration",
+            "button_url": admin_url,
+            "footer_note": "Alerte interne envoyée à l'équipe STOCKPRO (réglage SIGNUP_ALERT_EMAILS).",
+        }
+    )
+    _deliver(f"Nouvelle inscription · {organization.name}", [(text, html, r) for r in recipients])

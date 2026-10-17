@@ -1,14 +1,22 @@
-from apps.notifications.models import Notification, NotificationKind
+from django.db import transaction
+
+from apps.notifications.models import KIND_PERMISSIONS, Notification, NotificationKind, wants_email
 
 
-def notify(organization, *, permission, kind, message, link="", warehouse=None, exclude_user=None):
-    """Notifie les membres actifs ayant `permission` (et l'accès au dépôt concerné).
+def notify(organization, *, kind, message, link="", warehouse=None, exclude_user=None):
+    """Notifie les membres actifs ayant la permission du type (et l'accès au dépôt).
 
+    Une notification interne par destinataire, et un email pour ceux qui l'ont
+    choisi (adresse confirmée), envoyé une fois la transaction validée : une
+    opération annulée ne doit rien annoncer.
     L'auteur de l'action est exclu : il sait déjà ce qu'il vient de faire.
     """
     from apps.accounts.models import Membership
 
-    memberships = Membership.objects.filter(organization=organization, is_active=True)
+    permission = KIND_PERMISSIONS[kind]
+    memberships = Membership.objects.filter(
+        organization=organization, is_active=True, user__is_active=True
+    ).select_related("user")
     recipients = [
         m
         for m in memberships
@@ -16,16 +24,25 @@ def notify(organization, *, permission, kind, message, link="", warehouse=None, 
         and (warehouse is None or m.can_access_warehouse(warehouse))
         and (exclude_user is None or m.user_id != exclude_user.pk)
     ]
+    message = message[:255]
     Notification.objects.bulk_create(
         Notification(
             organization=organization,
             recipient=m,
             kind=kind,
-            message=message[:255],
+            message=message,
             link=link,
         )
         for m in recipients
     )
+
+    emails = [m.user for m in recipients if m.user.email_verified_at and wants_email(m, kind)]
+    if emails:
+        from apps.accounts.emails import send_notification_emails
+
+        transaction.on_commit(
+            lambda: send_notification_emails(organization, kind, message, link, emails)
+        )
 
 
 def notify_stock_threshold(position, old_quantity, user=None):
@@ -48,7 +65,6 @@ def notify_stock_threshold(position, old_quantity, user=None):
     # Destinataires : ceux qui peuvent réapprovisionner, y compris l'auteur de la vente.
     notify(
         position.organization,
-        permission="purchases.create",
         kind=kind,
         message=message,
         link="/stock/alertes",

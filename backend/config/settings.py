@@ -352,3 +352,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 ALPHAPAY_SECRET_KEY = os.getenv("ALPHAPAY_SECRET_KEY", "")
 ALPHAPAY_WEBHOOK_SECRET = os.getenv("ALPHAPAY_WEBHOOK_SECRET", "")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://stockpro.miguelmissetcho.com")
+
+# Alerte « nouvelle inscription » pour l'équipe STOCKPRO : adresses séparées par
+# des virgules ; vide = superutilisateurs actifs ; « off » = aucune alerte.
+SIGNUP_ALERT_EMAILS = [e.strip() for e in os.getenv("SIGNUP_ALERT_EMAILS", "").split(",") if e.strip()]

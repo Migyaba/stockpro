@@ -1,9 +1,15 @@
 from django.utils import timezone
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from apps.notifications.models import Notification
+from apps.notifications.models import (
+    KIND_DESCRIPTIONS,
+    KIND_PERMISSIONS,
+    Notification,
+    NotificationKind,
+    wants_email,
+)
 from apps.notifications.serializers import NotificationSerializer
 
 
@@ -36,3 +42,36 @@ class NotificationViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     def read_all(self, request):
         updated = self.get_queryset().filter(read_at__isnull=True).update(read_at=timezone.now())
         return Response({"updated": updated})
+
+    @action(detail=False, methods=["get", "patch"])
+    def preferences(self, request):
+        """Emails choisis par le membre, parmi les types qu'il peut recevoir.
+
+        PATCH {"email": {"STOCK_LOW": false, ...}} : seuls les types listés changent.
+        """
+        membership = request.membership
+        available = [k for k in NotificationKind if membership.has_perm(KIND_PERMISSIONS[k])]
+        if request.method == "PATCH":
+            choices = request.data.get("email")
+            if not isinstance(choices, dict) or not all(
+                k in available and isinstance(v, bool) for k, v in choices.items()
+            ):
+                raise serializers.ValidationError(
+                    {"email": "Attendu : {type de notification: true/false} parmi vos notifications."}
+                )
+            membership.email_notifications = {**(membership.email_notifications or {}), **choices}
+            membership.save(update_fields=["email_notifications", "updated_at"])
+        return Response(
+            {
+                "email_verified": request.user.email_verified_at is not None,
+                "kinds": [
+                    {
+                        "kind": k.value,
+                        "label": k.label,
+                        "description": KIND_DESCRIPTIONS[k],
+                        "email": wants_email(membership, k),
+                    }
+                    for k in available
+                ],
+            }
+        )
