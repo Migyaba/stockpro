@@ -55,10 +55,18 @@ export function useBootstrap() {
   };
 }
 
-// N'accepte que des chemins internes (« /ventes »), jamais « //site.com » ni une URL absolue.
+// N'accepte que des chemins internes (« /ventes »). Les navigateurs lisent
+// « \ » comme « / » : « /\site.com » deviendrait « //site.com », d'où la
+// vérification de l'origine après résolution.
 function safeRedirect(target?: string | null): string {
-  if (!target || !target.startsWith("/") || target.startsWith("//")) return "/dashboard";
-  return target;
+  if (!target || !target.startsWith("/") || target.includes("\\")) return "/dashboard";
+  try {
+    const url = new URL(target, window.location.origin);
+    if (url.origin !== window.location.origin) return "/dashboard";
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return "/dashboard";
+  }
 }
 
 // ─── Login mutation ────────────────────────────────────────────────────────

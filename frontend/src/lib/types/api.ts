@@ -384,13 +384,15 @@ export interface DashboardKpis {
   /** Sous le seuil minimum mais pas en rupture. */
   low_stock_count: number;
   out_of_stock_count: number;
-  pending_purchases: number;
+  /** null pour les rôles sans accès aux achats. */
+  pending_purchases: number | null;
   warehouses_count: number;
   sales_week_total: number;
   sales_month_total: number;
   sales_month_count: number;
   sales_month_evolution_pct: number | null;
-  purchases_month_total: number;
+  /** null pour les rôles sans accès aux achats ou aux coûts. */
+  purchases_month_total: number | null;
   /** null pour les rôles sans accès aux coûts. */
   margin_month: number | null;
   margin_month_pct: number | null;

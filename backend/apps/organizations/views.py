@@ -65,17 +65,23 @@ class DashboardView(APIView):
             )["total"]
             or 0
         )
-        pending_purchases = restrict_to_allowed_warehouses(
-            Purchase.objects.filter(
-                organization=org,
-                status__in=[
-                    PurchaseStatus.DRAFT,
-                    PurchaseStatus.CONFIRMED,
-                    PurchaseStatus.PARTIALLY_RECEIVED,
-                ],
-            ),
-            membership,
-        ).count()
+        # Achats : réservés aux rôles qui voient les achats. Leur total est un
+        # montant au prix d'achat, donc aussi soumis à l'accès aux coûts.
+        can_view_purchases = membership.has_perm("purchases.view")
+        can_view_cost = membership.has_perm("prices.view_cost")
+        pending_purchases = None
+        if can_view_purchases:
+            pending_purchases = restrict_to_allowed_warehouses(
+                Purchase.objects.filter(
+                    organization=org,
+                    status__in=[
+                        PurchaseStatus.DRAFT,
+                        PurchaseStatus.CONFIRMED,
+                        PurchaseStatus.PARTIALLY_RECEIVED,
+                    ],
+                ),
+                membership,
+            ).count()
         recent = sales.order_by("-created_at")[:8].values(
             "id", "reference", "status", "total", "sale_date"
         )
@@ -85,9 +91,11 @@ class DashboardView(APIView):
             status=SaleStatus.COMPLETED, sale_date__range=(today - timedelta(days=6), today)
         ).aggregate(t=Sum("total"))["t"] or 0
         month = sales_summary(org, membership, month_start, today)["totals"]
-        purchases_month = (
-            ordered_purchases(org, membership, month_start, today).aggregate(t=Sum("total"))["t"] or 0
-        )
+        purchases_month = None
+        if can_view_purchases and can_view_cost:
+            purchases_month = (
+                ordered_purchases(org, membership, month_start, today).aggregate(t=Sum("total"))["t"] or 0
+            )
         warehouses = restrict_to_allowed_warehouses(
             org.inventory_warehouse_set.filter(is_active=True), membership, field="id"
         )
@@ -95,7 +103,7 @@ class DashboardView(APIView):
             {
                 "products_count": Product.objects.filter(organization=org, is_active=True).count(),
                 # Valeur au prix d'achat : masquée aux rôles sans accès aux coûts.
-                "stock_value": stock_value if membership.has_perm("prices.view_cost") else 0,
+                "stock_value": stock_value if can_view_cost else 0,
                 "sales_today": sales_today_total,
                 "sales_today_total": sales_today_total,
                 "sales_today_count": sales_today.count(),

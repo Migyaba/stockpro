@@ -2,6 +2,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, AuthenticationFailed
 
 from apps.accounts.models import Membership
+from apps.accounts.tokens import password_fingerprint, session_expired
 from apps.core.tenancy import set_tenant
 
 
@@ -15,6 +16,8 @@ class TenantJWTAuthentication(JWTAuthentication):
         organization_id = token.get("organization_id")
         if not membership_id or not organization_id:
             raise InvalidToken("Jeton incomplet : membership manquant.")
+        if token.get("pwd") != password_fingerprint(user) or session_expired(token.get("auth_time")):
+            raise AuthenticationFailed("Session expirée : reconnectez-vous.")
         try:
             membership = Membership.objects.select_related("organization", "user").get(
                 id=membership_id,

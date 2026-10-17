@@ -1,4 +1,5 @@
 import threading
+import time
 from datetime import date
 from unittest import mock, skipUnless
 
@@ -7,6 +8,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase, override_settings
 from rest_framework.throttling import ScopedRateThrottle
+from rest_framework_simplejwt.tokens import RefreshToken, UntypedToken
 
 from apps.accounts.models import Membership, Role, User
 from apps.core.exceptions import InsufficientStock
@@ -310,6 +312,70 @@ class AuthHardeningTests(SecurityTestCase):
         self.assertEqual(strong.status_code, 200)
 
 
+class SessionRevocationTests(SecurityTestCase):
+    """Un jeton volé ne doit pas survivre à un changement de mot de passe ni
+    être prolongé indéfiniment par la rotation du refresh."""
+
+    def login(self, email="owner@example.com", password=PASSWORD):
+        res = self.client.post("/api/auth/login/", {"email": email, "password": password}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        return res.data
+
+    def me_status(self, tokens):
+        self.auth(tokens)
+        return self.client.get("/api/auth/me/").status_code
+
+    def refresh_status(self, tokens):
+        self.client.credentials()
+        return self.client.post("/api/auth/refresh/", {"refresh": tokens["refresh"]}, format="json").status_code
+
+    def test_password_change_revokes_other_sessions_and_keeps_current_one(self):
+        other_device = self.login()
+        self.auth(self.owner_tokens)
+        res = self.client.post(
+            "/api/auth/password/change/",
+            {"old_password": PASSWORD, "new_password": "Nouveau-Secret-42"},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.me_status(other_device), 401)
+        self.assertEqual(self.refresh_status(other_device), 401)
+        self.assertEqual(self.me_status(self.owner_tokens), 401)
+        self.assertEqual(self.me_status(res.data), 200)
+
+    def test_password_reset_revokes_existing_tokens(self):
+        self.client.credentials()
+        self.client.post("/api/auth/password/forgot/", {"email": "owner@example.com"}, format="json")
+        link = next(line for line in mail.outbox[0].body.splitlines() if "reset-password" in line)
+        query = dict(part.split("=", 1) for part in link.split("?", 1)[1].split("&"))
+        res = self.client.post("/api/auth/password/reset/", {**query, "password": "Nouveau-Secret-42"}, format="json")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.me_status(self.owner_tokens), 401)
+        self.assertEqual(self.refresh_status(self.owner_tokens), 401)
+
+    def test_refresh_keeps_login_time_and_session_has_a_maximum_age(self):
+        first_auth_time = UntypedToken(self.owner_tokens["refresh"])["auth_time"]
+        self.client.credentials()
+        rotated = self.client.post("/api/auth/refresh/", {"refresh": self.owner_tokens["refresh"]}, format="json").data
+        self.assertEqual(UntypedToken(rotated["refresh"])["auth_time"], first_auth_time)
+        later = time.time() + 31 * 24 * 3600
+        with mock.patch("apps.accounts.tokens.time.time", return_value=later):
+            self.assertEqual(self.refresh_status(rotated), 401)
+            self.assertEqual(self.me_status(rotated), 401)
+
+    def test_token_issued_without_password_fingerprint_is_rejected(self):
+        membership = Membership.objects.get(user__email="owner@example.com")
+        legacy = RefreshToken.for_user(membership.user)
+        legacy["membership_id"] = str(membership.id)
+        legacy["organization_id"] = str(membership.organization_id)
+        access = legacy.access_token
+        access["membership_id"] = str(membership.id)
+        access["organization_id"] = str(membership.organization_id)
+        tokens = {"access": str(access), "refresh": str(legacy)}
+        self.assertEqual(self.me_status(tokens), 401)
+        self.assertEqual(self.refresh_status(tokens), 401)
+
+
 class BillingHardeningTests(SecurityTestCase):
     @override_settings(DEBUG=True, ALPHAPAY_WEBHOOK_SECRET="")
     def test_unsigned_webhook_rejected_even_in_debug(self):
@@ -336,6 +402,20 @@ class CostVisibilityTests(SecurityTestCase):
         self.assertEqual(self.client.get("/api/dashboard/").data["stock_value"], 0)
         movement = self.client.get("/api/movements/").data["results"][0]
         self.assertNotIn("unit_cost", movement)
+
+    def test_dashboard_hides_purchase_figures_from_staff(self):
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        data = self.client.get("/api/dashboard/").data
+        self.assertIsNone(data["purchases_month_total"])
+        self.assertIsNone(data["pending_purchases"])
+
+    def test_dashboard_shows_purchase_figures_to_manager(self):
+        _, manager = self.member(Role.MANAGER)
+        self.auth(manager)
+        data = self.client.get("/api/dashboard/").data
+        self.assertEqual(data["purchases_month_total"], 0)
+        self.assertEqual(data["pending_purchases"], 0)
 
 
 @skipUnless(connection.vendor == "postgresql", "Verrous FOR UPDATE : nécessite TEST_DATABASE_URL (PostgreSQL).")

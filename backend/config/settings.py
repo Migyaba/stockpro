@@ -13,7 +13,14 @@ load_dotenv(BASE_DIR / ".env")
 
 DEBUG = os.getenv("DJANGO_DEBUG", "false").lower() == "true"
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
-if not DEBUG and "test" not in sys.argv and SECRET_KEY.startswith(("dev-only", "stockpro-dev", "generate-a")):
+# Textes d'exemple des fichiers .env*.example et valeurs de dev : refusés hors
+# DEBUG, car SECRET_KEY signe aussi les jetons JWT.
+PLACEHOLDER_SECRET_PREFIXES = ("dev-only", "stockpro-dev", "generate", "generer", "change", "votre")
+if (
+    not DEBUG
+    and "test" not in sys.argv
+    and (not SECRET_KEY.strip() or SECRET_KEY.lower().startswith(PLACEHOLDER_SECRET_PREFIXES))
+):
     raise ImproperlyConfigured("DJANGO_SECRET_KEY doit être défini avec une valeur secrète en production.")
 ALLOWED_HOSTS = [
     h.strip()
@@ -302,6 +309,8 @@ SIMPLE_JWT = {
         minutes=int(os.getenv("JWT_ACCESS_MINUTES", "30"))
     ),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=int(os.getenv("JWT_REFRESH_DAYS", "14"))),
+    # Durée maximale d'une session, rafraîchissements compris (voir tokens.py).
+    "SESSION_MAX_LIFETIME": timedelta(days=int(os.getenv("JWT_SESSION_MAX_DAYS", "30"))),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),

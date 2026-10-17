@@ -33,7 +33,7 @@ from apps.accounts.serializers import (
     RegisterSerializer,
     invitation_url,
 )
-from apps.accounts.tokens import issue_tokens
+from apps.accounts.tokens import issue_tokens, password_fingerprint, session_expired
 from apps.audit.services import AuditAction, write_audit
 from apps.core.exceptions import InvalidStateTransition
 from apps.core.permissions import ROLE_PERMISSIONS, require_permission
@@ -135,8 +135,17 @@ class RefreshView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         user = membership.user
+        # Mot de passe changé depuis l'émission, ou session trop ancienne :
+        # la rotation ne doit pas prolonger indéfiniment un jeton volé.
+        auth_time = old.get("auth_time")
+        if old.get("pwd") != password_fingerprint(user) or session_expired(auth_time):
+            old.blacklist()
+            return Response(
+                {"error": {"code": "authentication_failed", "message": "Session expirée : reconnectez-vous."}},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         old.blacklist()
-        tokens = issue_tokens(user, membership)
+        tokens = issue_tokens(user, membership, auth_time=auth_time)
         return Response(tokens)
 
 
@@ -223,7 +232,9 @@ class ChangePasswordView(APIView):
             )
         request.user.set_password(serializer.validated_data["new_password"])
         request.user.save()
-        return Response({"ok": True})
+        # Les jetons existants (autres appareils compris) ne sont plus valides :
+        # on renvoie un nouveau couple pour garder la session en cours.
+        return Response({"ok": True, **issue_tokens(request.user, request.membership)})
 
 
 class PasswordForgotView(APIView):
