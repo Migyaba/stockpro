@@ -62,6 +62,8 @@ export interface Organization {
   tax_rate_bps: number;
   prices_include_tax: boolean;
   max_discount_percent_manager: number;
+  /** Jours dans le passé autorisés pour dater une vente ou un achat. */
+  backdating_days: number;
   address?: string;
   phone?: string;
   email?: string;
@@ -116,7 +118,8 @@ export interface Product {
   maximum_stock?: number;
   is_active: boolean;
   /** Stock total tous dépôts confondus (calculé par l'API). */
-  total_stock?: number;
+  /** null : inventaire en cours, stock masqué à ceux qui comptent. */
+  total_stock?: number | null;
   image?: string | null;
   created_at: string;
   updated_at?: string;
@@ -127,7 +130,9 @@ export interface StockPosition {
   id: string;
   product: Product;
   warehouse: Warehouse;
-  quantity: number;
+  /** null : inventaire en cours dans ce dépôt, stock masqué à ceux qui comptent. */
+  quantity: number | null;
+  status?: "NORMAL" | "LOW" | "OUT_OF_STOCK" | "COUNTING";
 }
 
 export type MovementType =
@@ -412,13 +417,15 @@ export interface DashboardKpis {
 }
 
 // ─── Stock Level Badge ─────────────────────────────────────────────────────
-export type StockLevel = "normal" | "low" | "out_of_stock";
+export type StockLevel = "normal" | "low" | "out_of_stock" | "counting";
 
 /**
  * Même règle que le backend (apps/inventory/stock_levels.py), les alertes et le dashboard :
  * rupture = 0 ; faible = 0 < quantité ≤ seuil (si le produit a un seuil) ; sinon normal.
  */
-export function getStockLevel(quantity: number, minimumStock: number): StockLevel {
+// quantity null : inventaire en cours, stock masqué (comptage à l'aveugle).
+export function getStockLevel(quantity: number | null, minimumStock: number): StockLevel {
+  if (quantity === null) return "counting";
   if (quantity === 0) return "out_of_stock";
   if (minimumStock > 0 && quantity <= minimumStock) return "low";
   return "normal";

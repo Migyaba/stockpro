@@ -58,9 +58,25 @@ class StockPositionSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    @extend_schema_field(serializers.ChoiceField(choices=["NORMAL", "LOW", "OUT_OF_STOCK"]))
+    @extend_schema_field(serializers.ChoiceField(choices=["NORMAL", "LOW", "OUT_OF_STOCK", "COUNTING"]))
     def get_status(self, obj):
+        if self._hidden(obj):
+            return "COUNTING"
         return stock_level(obj.quantity, obj.product.minimum_stock)
+
+    def _hidden(self, obj):
+        return obj.warehouse_id in self.context.get("hidden_warehouses", ())
+
+    def to_representation(self, obj):
+        data = super().to_representation(obj)
+        if self._hidden(obj):
+            # Inventaire en cours dans ce dépôt : quantité non communiquée à
+            # ceux qui comptent (comptage à l'aveugle).
+            data["quantity"] = None
+        if self.context.get("hidden_warehouses") and isinstance(data.get("product"), dict):
+            # Le total tous dépôts permettrait de retrouver la quantité masquée.
+            data["product"]["total_stock"] = None
+        return data
 
 
 class StockMovementSerializer(serializers.ModelSerializer):

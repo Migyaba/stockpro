@@ -1,6 +1,6 @@
 import threading
 import time
-from datetime import date
+from datetime import date, timedelta
 from unittest import mock, skipUnless
 
 from django.core import mail
@@ -629,6 +629,81 @@ class AdminAndDocsProtectionTests(SecurityTestCase):
             self.assertEqual(self.client.get("/admin/", REMOTE_ADDR="203.0.113.7").status_code, 404)
             self.assertEqual(self.client.get("/api/docs/", REMOTE_ADDR="203.0.113.7").status_code, 404)
             self.assertEqual(self.client.get("/admin/", REMOTE_ADDR="10.1.2.3").status_code, 302)
+
+
+class BlindCountStockTests(SecurityTestCase):
+    """Pendant un inventaire ouvert, ceux qui comptent ne voient pas le stock
+    du dépôt (sinon il suffirait de le recopier)."""
+
+    def setUp(self):
+        super().setUp()
+        res = self.client.post("/api/inventories/", {"warehouse": self.warehouse_id}, format="json")
+        self.assertEqual(res.status_code, 201, res.data)
+        self.inventory_id = res.data["id"]
+
+    def test_staff_does_not_see_stock_of_warehouse_being_counted(self):
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        position = self.client.get("/api/stock/").data["results"][0]
+        self.assertIsNone(position["quantity"])
+        self.assertEqual(position["status"], "COUNTING")
+        self.assertIsNone(position["product"]["total_stock"])
+        self.assertIsNone(self.client.get(f"/api/products/{self.product_id}/").data["total_stock"])
+        self.assertEqual(self.client.get("/api/stock/?status=NORMAL").data["count"], 0)
+        self.assertEqual(self.client.get("/api/alerts/stock/").data["summary"]["total"], 0)
+
+    def test_validators_still_see_stock(self):
+        _, manager = self.member(Role.MANAGER)
+        self.auth(manager)
+        self.assertEqual(self.client.get("/api/stock/").data["results"][0]["quantity"], 20)
+
+    def test_stock_is_visible_again_once_inventory_is_closed(self):
+        self.client.post(f"/api/inventories/{self.inventory_id}/cancel/")
+        _, staff = self.member(Role.STAFF)
+        self.auth(staff)
+        self.assertEqual(self.client.get("/api/stock/").data["results"][0]["quantity"], 20)
+
+
+class DocumentDateTests(SecurityTestCase):
+    """Dates de vente et d'achat : pas de futur, passé limité au délai de
+    saisie rétroactive de l'organisation (30 jours par défaut)."""
+
+    def sale_on(self, day):
+        return self.client.post(
+            "/api/sales/",
+            {
+                "warehouse": self.warehouse_id,
+                "sale_date": day.isoformat(),
+                "items": [{"product": self.product_id, "quantity": 1}],
+            },
+            format="json",
+        )
+
+    def test_future_and_too_old_dates_are_rejected(self):
+        today = timezone.localdate()
+        self.assertEqual(self.sale_on(today + timedelta(days=1)).status_code, 400)
+        self.assertEqual(self.sale_on(today - timedelta(days=31)).status_code, 400)
+        self.assertEqual(self.sale_on(today - timedelta(days=29)).status_code, 201)
+        supplier = self.client.post("/api/suppliers/", {"name": "Grossiste"}, format="json").data
+        res = self.client.post(
+            "/api/purchases/",
+            {
+                "supplier": supplier["id"],
+                "warehouse": self.warehouse_id,
+                "purchase_date": (today + timedelta(days=3)).isoformat(),
+                "items": [{"product": self.product_id, "quantity": 1, "unit_price": 100}],
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_backdating_window_is_an_organization_setting(self):
+        res = self.client.patch("/api/organizations/me/", {"backdating_days": 90}, format="json")
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(self.sale_on(timezone.localdate() - timedelta(days=60)).status_code, 201)
+        self.assertEqual(
+            self.client.patch("/api/organizations/me/", {"backdating_days": 400}, format="json").status_code, 400
+        )
 
 
 class BillingHardeningTests(SecurityTestCase):

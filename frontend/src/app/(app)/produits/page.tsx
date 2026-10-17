@@ -173,6 +173,7 @@ export default function ProduitsPage() {
                 </tr>
               ) : (
                 products.map((p) => {
+                  const counting = p.total_stock === null;
                   const low = p.minimum_stock > 0 && (p.total_stock ?? 0) <= p.minimum_stock;
                   return (
                     <tr key={p.id} className={cn(!p.is_active && "opacity-60")}>
@@ -196,14 +197,23 @@ export default function ProduitsPage() {
                       <td
                         className={cn(
                           "px-4 py-3 text-right tabular-nums font-medium",
-                          (p.total_stock ?? 0) === 0
+                          counting
+                            ? "text-zinc-400"
+                            : (p.total_stock ?? 0) === 0
                             ? "text-rose-600 dark:text-rose-400"
                             : low
                               ? "text-amber-600 dark:text-amber-400"
                               : "text-zinc-900 dark:text-zinc-100"
                         )}
                       >
-                        {formatQuantity(p.total_stock ?? 0)} <span className="text-xs font-normal text-zinc-400">{p.unit}</span>
+                        {counting ? (
+                          <span className="text-xs font-normal">Comptage en cours</span>
+                        ) : (
+                          <>
+                            {formatQuantity(p.total_stock ?? 0)}{" "}
+                            <span className="text-xs font-normal text-zinc-400">{p.unit}</span>
+                          </>
+                        )}
                       </td>
                       {(canUpdate || canDeactivate) && (
                         <td className="px-4 py-3 text-right">

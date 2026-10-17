@@ -6,6 +6,7 @@ from django.db.models.functions import Coalesce
 from apps.audit.services import AuditAction, write_audit
 from apps.core.permissions import require_permission
 from apps.core.viewsets import AuditedViewSetMixin, TenantViewSet
+from apps.inventory.blind import hidden_stock_warehouse_ids
 from apps.inventory.services import initialize_stock
 from apps.products.models import Category, Product
 from apps.products.serializers import CategorySerializer, ProductSerializer
@@ -38,12 +39,20 @@ class ProductViewSet(AuditedViewSetMixin, TenantViewSet):
         # pas déduire le stock des autres boutiques.
         qs = super().get_queryset()
         membership = getattr(self.request, "membership", None)
-        extra = {}
+        condition = Q()
         if membership is not None and membership.role not in {"OWNER", "ADMINISTRATOR"}:
             ids = membership.warehouse_ids()
             if ids:
-                extra["filter"] = Q(positions__warehouse_id__in=ids)
+                condition &= Q(positions__warehouse_id__in=ids)
+        extra = {"filter": condition} if condition else {}
         return qs.annotate(total_stock=Coalesce(Sum("positions__quantity", **extra), 0))
+
+    def get_serializer_context(self):
+        # Inventaire ouvert : ceux qui comptent ne reçoivent pas le stock total
+        # (un total partiel afficherait à tort une rupture).
+        context = super().get_serializer_context()
+        context["stock_hidden"] = bool(hidden_stock_warehouse_ids(getattr(self.request, "membership", None)))
+        return context
 
     def get_permissions(self):
         mapping = {

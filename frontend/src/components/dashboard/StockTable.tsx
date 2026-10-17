@@ -35,6 +35,8 @@ const STOCK_BADGE: Record<
   normal: { label: "Normal", variant: "success" },
   low: { label: "Faible", variant: "warning" },
   out_of_stock: { label: "Rupture", variant: "destructive" },
+  // Inventaire en cours dans le dépôt : stock masqué à ceux qui comptent.
+  counting: { label: "Comptage en cours", variant: "secondary" },
 };
 
 export function StockTable({
@@ -188,7 +190,7 @@ export function StockTable({
                           : level === "low" ? "text-amber-600 dark:text-amber-400"
                           : "text-zinc-900 dark:text-zinc-50"
                         )}>
-                          {formatQuantity(pos.quantity)}
+                          {pos.quantity === null ? "—" : formatQuantity(pos.quantity)}
                         </span>
                       </td>
                       <td className="px-4 py-3">
@@ -204,7 +206,7 @@ export function StockTable({
                       )}
                       {canViewCost && (
                         <td className="px-4 py-3 text-right font-numeric text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                          {formatFCFA(pos.quantity * pos.product.purchase_price)}
+                          {pos.quantity === null ? "—" : formatFCFA(pos.quantity * pos.product.purchase_price)}
                         </td>
                       )}
                       <td className="px-4 py-3">

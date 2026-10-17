@@ -16,6 +16,23 @@ def organization_today(org) -> date:
     return timezone.localdate(timezone=tz)
 
 
+def validate_document_date(value, org):
+    """Date d'une vente ou d'un achat : ni dans le futur, ni plus ancienne que
+    le délai de saisie rétroactive de l'organisation."""
+    from rest_framework import serializers
+
+    today = organization_today(org)
+    if value > today:
+        raise serializers.ValidationError("La date ne peut pas être dans le futur.")
+    oldest = today - timedelta(days=org.backdating_days)
+    if value < oldest:
+        raise serializers.ValidationError(
+            f"La date ne peut pas être antérieure au {oldest.strftime('%d/%m/%Y')} "
+            f"({org.backdating_days} jours de saisie rétroactive autorisés)."
+        )
+    return value
+
+
 def _parse(value, name):
     try:
         return date.fromisoformat(value)

@@ -24,6 +24,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "tax_rate_bps",
             "prices_include_tax",
             "max_discount_percent_manager",
+            "backdating_days",
             "status",
             "trial_ends_at",
             "created_at",

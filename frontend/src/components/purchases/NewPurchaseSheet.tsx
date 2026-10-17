@@ -21,6 +21,7 @@ import {
 import { formatFCFA } from "@/lib/utils/format";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useSuppliers } from "@/lib/hooks/useSuppliers";
+import { useOrganizationProfile } from "@/lib/hooks/useOrganization";
 import { useProducts } from "@/lib/hooks/useProducts";
 import { useCreatePurchase } from "@/lib/hooks/usePurchases";
 import type { CreatePurchasePayload } from "@/lib/types/api";
@@ -53,6 +54,12 @@ export function NewPurchaseSheet({ open, onOpenChange }: NewPurchaseSheetProps) 
     new Date().toISOString().split("T")[0]
   );
   const [expectedDate, setExpectedDate] = useState("");
+  // Bornes de la date de commande : pas de futur, passé limité (règle backend).
+  const { data: org } = useOrganizationProfile();
+  const [today] = useState(() => new Date().toISOString().split("T")[0]);
+  const oldestDate = new Date(Date.parse(today) - (org?.backdating_days ?? 30) * 86_400_000)
+    .toISOString()
+    .split("T")[0];
 
   const [lines, setLines] = useState<PurchaseLineForm[]>([
     {
@@ -264,6 +271,8 @@ export function NewPurchaseSheet({ open, onOpenChange }: NewPurchaseSheetProps) 
               <input
                 type="date"
                 value={purchaseDate}
+                min={oldestDate}
+                max={today}
                 onChange={(e) => setPurchaseDate(e.target.value)}
                 className="w-full rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"
               />

@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.utils.functional import cached_property
 from django.db.models import Count, F, Q
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -14,6 +15,7 @@ from apps.core.permissions import require_permission
 from apps.notifications.models import NotificationKind
 from apps.notifications.services import notify
 from apps.core.viewsets import AuditedViewSetMixin, TenantViewSet, restrict_to_allowed_warehouses
+from apps.inventory.blind import hidden_stock_warehouse_ids
 from apps.inventory.counts import (
     cancel_inventory,
     record_counts,
@@ -69,9 +71,20 @@ class StockViewSet(TenantViewSet):
     http_method_names = ["get", "head", "options"]
     filterset_fields = ["warehouse", "product"]
     search_fields = ["product__name", "product__sku", "product__barcode"]
+    # Pas de tri par quantité : il trahirait un stock masqué (inventaire en cours).
+    ordering_fields = ["product__name", "warehouse__name", "updated_at"]
 
     def get_permissions(self):
         return [require_permission("stock.view")()]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["hidden_warehouses"] = self.hidden_warehouses
+        return context
+
+    @cached_property
+    def hidden_warehouses(self):
+        return hidden_stock_warehouse_ids(getattr(self.request, "membership", None))
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -79,6 +92,9 @@ class StockViewSet(TenantViewSet):
         if ids and self.request.membership.role not in {"OWNER", "ADMINISTRATOR"}:
             qs = qs.filter(warehouse_id__in=ids)
         status = self.request.query_params.get("status")
+        if status in (LOW, OUT_OF_STOCK, NORMAL) and self.hidden_warehouses:
+            # Un filtre par niveau révélerait le stock d'un dépôt en inventaire.
+            qs = qs.exclude(warehouse_id__in=self.hidden_warehouses)
         if status == LOW:
             qs = qs.filter(LOW_Q)
         elif status == OUT_OF_STOCK:
@@ -301,6 +317,9 @@ class StockAlertView(APIView):
         warehouse_id = uuid_param(request, "warehouse")
         if warehouse_id:
             positions = positions.filter(warehouse_id=warehouse_id)
+        hidden = hidden_stock_warehouse_ids(request.membership)
+        if hidden:
+            positions = positions.exclude(warehouse_id__in=hidden)
         out, low = OUT_OF_STOCK_Q, LOW_Q
         counts = {
             "out": positions.filter(out).count(),
