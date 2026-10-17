@@ -1,220 +1,145 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Menu, X, ArrowRight, ShieldCheck, LayoutDashboard } from "lucide-react";
+import { Menu, X, ArrowRight, LayoutDashboard } from "lucide-react";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useHydrated } from "@/lib/hooks/useHydrated";
+import { BrandMark } from "./BrandMark";
+import { SIGNUP_LABEL, buttonPrimarySm, buttonSecondary } from "./styles";
+
+const LINKS = [
+  { href: "#fonctionnalites", label: "Fonctionnalités" },
+  { href: "#pour-qui", label: "Pour qui" },
+  { href: "#fonctionnement", label: "Comment ça marche" },
+  { href: "#tarifs", label: "Tarifs" },
+  { href: "#faq", label: "FAQ" },
+];
+
+const linkClass =
+  "rounded-full px-4 py-2 text-sm text-lp-ink-2 outline-none transition-colors hover:bg-white/[0.06] hover:text-lp-ink focus-visible:ring-2 focus-visible:ring-lp-brand-ink";
 
 export function LandingNavbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const { accessToken, user } = useAuthStore();
   const mounted = useHydrated();
 
+  // Un repère en haut du document : quand il sort de l'écran, la page a
+  // défilé et la pilule devient plus opaque.
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsScrolled(!entry.isIntersecting);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileMenuOpen]);
+
   const isAuthenticated = mounted && !!accessToken;
+  const closeMenu = () => setMobileMenuOpen(false);
 
   return (
-    <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled
-          ? "bg-zinc-950/85 backdrop-blur-md border-b border-zinc-800/80 shadow-lg shadow-black/20 py-3"
-          : "bg-transparent py-5"
-      }`}
-    >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 shadow-md shadow-indigo-600/30 group-hover:scale-105 transition-transform duration-200">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5 text-white"
-                aria-hidden
-              >
-                <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-                <path d="m3.3 7 8.7 5 8.7-5" />
-                <path d="M12 22V12" />
-              </svg>
-            </div>
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="text-xl font-bold tracking-tight text-white">
-                  STOCKPRO
-                </span>
-                <span className="text-[10px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                  SaaS B2B
-                </span>
-              </div>
-              <span className="text-[11px] text-zinc-400 hidden sm:inline-block">
-                Gestion Commerciale Afrique
-              </span>
-            </div>
-          </Link>
+    <>
+      <div ref={sentinelRef} aria-hidden className="absolute top-0 left-0 h-4 w-px" />
+      <header className="fixed inset-x-0 top-0 z-50 px-3 pt-3 sm:px-6 sm:pt-5">
+        <div
+          className={`mx-auto max-w-6xl rounded-[28px] border transition-[background-color,border-color,box-shadow] duration-300 ${
+            isScrolled || mobileMenuOpen
+              ? "border-white/[0.08] bg-[#141420]/85 shadow-[0_20px_40px_-20px_rgb(0_0_0/0.8)] backdrop-blur-xl"
+              : "border-white/[0.05] bg-white/[0.03] backdrop-blur-md"
+          }`}
+        >
+          <div className="flex h-14 items-center justify-between gap-4 pr-2 pl-4 sm:h-16 sm:pl-5">
+            <Link href="/" className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-lp-brand-ink">
+              <BrandMark />
+            </Link>
 
-          {/* Desktop Navigation Links */}
-          <nav className="hidden md:flex items-center gap-8">
-            <a
-              href="#fonctionnalites"
-              className="text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-            >
-              Fonctionnalités
-            </a>
-            <a
-              href="#multi-depots"
-              className="text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-            >
-              Multi-Dépôts
-            </a>
-            <a
-              href="#comparatif"
-              className="text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-            >
-              Pourquoi StockPro
-            </a>
-            <a
-              href="#tarifs"
-              className="text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-            >
-              Tarifs (FCFA)
-            </a>
-            <a
-              href="#faq"
-              className="text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-            >
-              FAQ
-            </a>
-          </nav>
+            <nav aria-label="Navigation principale" className="hidden items-center gap-1 lg:flex">
+              {LINKS.map((link) => (
+                <a key={link.href} href={link.href} className={`whitespace-nowrap ${linkClass}`}>
+                  {link.label}
+                </a>
+              ))}
+            </nav>
 
-          {/* Auth Actions */}
-          <div className="hidden md:flex items-center gap-4">
-            {isAuthenticated ? (
-              <Link
-                href="/dashboard"
-                className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:bg-indigo-500 transition-all active:scale-[0.98]"
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                <span>Mon Espace ({user?.first_name || "Dashboard"})</span>
-              </Link>
-            ) : (
-              <>
-                <Link
-                  href="/login"
-                  className="text-sm font-medium text-zinc-300 hover:text-white transition-colors px-3 py-2"
-                >
-                  Se connecter
+            <div className="hidden items-center gap-1 lg:flex">
+              {isAuthenticated ? (
+                <Link href="/dashboard" className={buttonPrimarySm}>
+                  <LayoutDashboard className="h-4 w-4" aria-hidden />
+                  <span>Mon espace{user?.first_name ? ` (${user.first_name})` : ""}</span>
                 </Link>
-                <Link
-                  href="/register"
-                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/50 hover:from-indigo-500 hover:to-violet-500 transition-all active:scale-[0.98]"
-                >
-                  <span>Essai Gratuit 7 jours</span>
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </>
-            )}
-          </div>
+              ) : (
+                <>
+                  <Link href="/login" className={`whitespace-nowrap ${linkClass}`}>
+                    Se connecter
+                  </Link>
+                  <Link href="/register" className={buttonPrimarySm}>
+                    {SIGNUP_LABEL}
+                  </Link>
+                </>
+              )}
+            </div>
 
-          {/* Mobile menu trigger */}
-          <div className="flex md:hidden">
             <button
               type="button"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors"
-              aria-label="Ouvrir le menu"
+              className="rounded-full p-2.5 text-lp-ink-2 outline-none transition-colors hover:bg-white/[0.06] hover:text-lp-ink focus-visible:ring-2 focus-visible:ring-lp-brand-ink lg:hidden"
+              aria-label={mobileMenuOpen ? "Fermer le menu" : "Ouvrir le menu"}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="landing-mobile-menu"
             >
-              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
-        </div>
-      </div>
 
-      {/* Mobile Drawer */}
-      {mobileMenuOpen && (
-        <div className="md:hidden bg-zinc-950 border-b border-zinc-800 px-4 pt-3 pb-6 mt-2 space-y-4 shadow-2xl">
-          <nav className="flex flex-col space-y-3">
-            <a
-              href="#fonctionnalites"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-base font-medium text-zinc-300 hover:text-white py-1"
-            >
-              Fonctionnalités
-            </a>
-            <a
-              href="#multi-depots"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-base font-medium text-zinc-300 hover:text-white py-1"
-            >
-              Multi-Dépôts
-            </a>
-            <a
-              href="#comparatif"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-base font-medium text-zinc-300 hover:text-white py-1"
-            >
-              Pourquoi StockPro
-            </a>
-            <a
-              href="#tarifs"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-base font-medium text-zinc-300 hover:text-white py-1"
-            >
-              Tarifs (FCFA)
-            </a>
-            <a
-              href="#faq"
-              onClick={() => setMobileMenuOpen(false)}
-              className="text-base font-medium text-zinc-300 hover:text-white py-1"
-            >
-              FAQ
-            </a>
-          </nav>
-          <div className="pt-4 border-t border-zinc-800/80 flex flex-col gap-3">
-            {isAuthenticated ? (
-              <Link
-                href="/dashboard"
-                onClick={() => setMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg"
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                <span>Accéder au Dashboard</span>
-              </Link>
-            ) : (
-              <>
-                <Link
-                  href="/login"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center justify-center w-full rounded-xl border border-zinc-700 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
-                >
-                  Se connecter
-                </Link>
-                <Link
-                  href="/register"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="flex items-center justify-center gap-2 w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30"
-                >
-                  <span>Essai Gratuit 7 jours</span>
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </>
-            )}
-          </div>
+          {mobileMenuOpen && (
+            <div id="landing-mobile-menu" className="border-t border-white/[0.06] px-3 pt-2 pb-4 lg:hidden">
+              <nav aria-label="Navigation mobile" className="flex flex-col">
+                {LINKS.map((link) => (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    onClick={closeMenu}
+                    className="rounded-xl px-3 py-3 text-base text-lp-ink-2 hover:bg-white/[0.05] hover:text-lp-ink"
+                  >
+                    {link.label}
+                  </a>
+                ))}
+              </nav>
+              <div className="mt-3 flex flex-col gap-2 border-t border-white/[0.06] pt-4">
+                {isAuthenticated ? (
+                  <Link href="/dashboard" onClick={closeMenu} className={`${buttonPrimarySm} w-full py-3`}>
+                    <LayoutDashboard className="h-4 w-4" aria-hidden />
+                    <span>Mon espace</span>
+                  </Link>
+                ) : (
+                  <>
+                    <Link href="/login" onClick={closeMenu} className={`${buttonSecondary} w-full`}>
+                      Se connecter
+                    </Link>
+                    <Link href="/register" onClick={closeMenu} className={`${buttonPrimarySm} w-full py-3`}>
+                      <span>{SIGNUP_LABEL}</span>
+                      <ArrowRight className="h-4 w-4" aria-hidden />
+                    </Link>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </header>
+      </header>
+    </>
   );
 }
